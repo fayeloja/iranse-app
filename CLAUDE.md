@@ -19,7 +19,7 @@ apps/
       server.ts    — HTTP entrypoint, mounts every modules/*.route.ts
       worker.ts     — queue entrypoint, registers BullMQ processors per WORKER_QUEUES
       modules/       — domain modules, each with route/controller/service/repository/validation:
-                       career-profile, job-discovery (+ adapters/), matching,
+                         career-profile, job-discovery (+ adapters/), matching,
                        application-materials, applications, identity, billing, admin
       infra/          — clients only, not domains: database, queue, rate-limiter,
                        embeddings, kyc-client, payments
