@@ -1,0 +1,272 @@
+import crypto from 'crypto';
+import argon2 from 'argon2';
+import jwt from 'jsonwebtoken';
+import { env } from '../../config/env.js';
+import * as repository from './identity.repository.js';
+import { encrypt, decrypt } from '../../infra/encryption/crypto.js';
+import { verifyNIN as kycVerifyNIN, KYCVerifyNINInput } from '../../infra/kyc-client/client.js';
+import { UserRole, UserPayload } from '../../middleware/auth.js';
+
+// ==========================================
+// CRYPTOGRAPHIC TOKEN HELPERS
+// ==========================================
+
+function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+export function generateAccessToken(user: { id: string; email: string; role: string; verification_status: string }): string {
+  const payload: UserPayload = {
+    id: user.id,
+    email: user.email,
+    role: user.role as UserRole,
+    verificationStatus: user.verification_status as any,
+  };
+  return jwt.sign(payload, env.JWT_ACCESS_SECRET, { expiresIn: '15m' });
+}
+
+export function generateRefreshTokenString(): string {
+  return crypto.randomBytes(40).toString('hex');
+}
+
+// ==========================================
+// AUTHENTICATION SERVICES
+// ==========================================
+
+export async function register(email: string, passwordPlaintext: string, phone: string, fullName: string) {
+  const existingUser = await repository.getUserByEmail(email);
+  if (existingUser) {
+    throw { status: 400, message: 'Email is already registered' };
+  }
+
+  const passwordHash = await argon2.hash(passwordPlaintext);
+  const user = await repository.createUser(email, passwordHash, phone, fullName);
+
+  await repository.logActivity(user.id, 'auth:register', `User registered: ${user.email}`);
+
+  return {
+    id: user.id,
+    email: user.email,
+    fullName: user.full_name,
+    role: user.role,
+    verificationStatus: user.verification_status,
+  };
+}
+
+export async function login(email: string, passwordPlaintext: string, ipAddress: string, userAgent: string) {
+  const user = await repository.getUserByEmail(email);
+  if (!user) {
+    throw { status: 401, message: 'Invalid email or password' };
+  }
+
+  const isPasswordValid = await argon2.verify(user.password_hash, passwordPlaintext);
+  if (!isPasswordValid) {
+    throw { status: 401, message: 'Invalid email or password' };
+  }
+
+  const accessToken = generateAccessToken(user);
+  const refreshToken = generateRefreshTokenString();
+  const tokenHash = hashToken(refreshToken);
+
+  // Parse simple browser/OS info from userAgent (Layer 5 Session tracking)
+  const browser = userAgent.includes('Chrome') ? 'Chrome' : userAgent.includes('Safari') ? 'Safari' : 'Firefox';
+  const os = userAgent.includes('Windows') ? 'Windows' : userAgent.includes('Macintosh') ? 'MacOS' : 'Linux';
+
+  await repository.createSession(user.id, tokenHash, ipAddress, userAgent, browser, os);
+  await repository.logActivity(user.id, 'auth:login', `Successful login from IP: ${ipAddress}`);
+
+  return {
+    accessToken,
+    refreshToken,
+    user: {
+      id: user.id,
+      email: user.email,
+      fullName: user.full_name,
+      role: user.role,
+      verificationStatus: user.verification_status,
+    },
+  };
+}
+
+export async function refresh(refreshTokenString: string, ipAddress: string, userAgent: string) {
+  const tokenHash = hashToken(refreshTokenString);
+  const session = await repository.getSessionByTokenHash(tokenHash);
+
+  if (!session || !session.is_active) {
+    throw { status: 401, message: 'Session expired or invalid refresh token' };
+  }
+
+  const user = await repository.getUserById(session.user_id);
+  if (!user) {
+    throw { status: 401, message: 'User not found' };
+  }
+
+  // Refresh Token Rotation (Layer 1 security)
+  await repository.deactivateSession(tokenHash);
+
+  const newAccessToken = generateAccessToken(user);
+  const newRefreshToken = generateRefreshTokenString();
+  const newTokenHash = hashToken(newRefreshToken);
+
+  const browser = userAgent.includes('Chrome') ? 'Chrome' : userAgent.includes('Safari') ? 'Safari' : 'Firefox';
+  const os = userAgent.includes('Windows') ? 'Windows' : userAgent.includes('Macintosh') ? 'MacOS' : 'Linux';
+
+  await repository.createSession(user.id, newTokenHash, ipAddress, userAgent, browser, os);
+  await repository.updateSessionActivity(newTokenHash);
+
+  return {
+    accessToken: newAccessToken,
+    refreshToken: newRefreshToken,
+  };
+}
+
+export async function logout(refreshTokenString: string) {
+  const tokenHash = hashToken(refreshTokenString);
+  const session = await repository.getSessionByTokenHash(tokenHash);
+  
+  if (session) {
+    await repository.deactivateSession(tokenHash);
+    await repository.logActivity(session.user_id, 'auth:logout', 'User logged out');
+  }
+}
+
+// ==========================================
+// IDENTITY VERIFICATION SERVICES (Layer 2 & 3)
+// ==========================================
+
+export async function verifyIdentityNIN(
+  userId: string,
+  nin: string,
+  firstName: string,
+  lastName: string,
+  dateOfBirth: string
+) {
+  const input: KYCVerifyNINInput = { nin, firstName, lastName, dateOfBirth };
+  const kycResult = await kycVerifyNIN(input);
+
+  if (!kycResult.verified) {
+    await repository.logActivity(userId, 'kyc:nin_failed', `NIN check failed: ${kycResult.reason}`);
+    throw { status: 400, message: kycResult.reason || 'NIN verification failed' };
+  }
+
+  // Check name match
+  const details = kycResult.details;
+  if (!details || !details.firstNameMatch || !details.lastNameMatch || !details.dobMatch) {
+    await repository.logActivity(userId, 'kyc:nin_failed', 'NIN check failed due to name or DOB mismatch');
+    throw { status: 400, message: 'NIN record details do not match profile details.' };
+  }
+
+  const updatedUser = await repository.updateUserVerificationStatus(userId, 'nin_verified');
+  await repository.logActivity(userId, 'kyc:nin_verified', `NIN verified successfully. Match Score: ${kycResult.matchScore}`);
+
+  return {
+    verificationStatus: updatedUser?.verification_status || 'nin_verified',
+  };
+}
+
+// ==========================================
+// AUTO-APPLY LEGAL CONSENTS (Layer 6)
+// ==========================================
+
+export async function logWaiverConsent(
+  userId: string,
+  consentVersion: string,
+  ipAddress: string,
+  userAgent: string,
+  countryCode?: string
+) {
+  const consent = await repository.logConsent(userId, consentVersion, ipAddress, userAgent, countryCode);
+  await repository.logActivity(userId, 'consent:signed', `Signed auto-apply consent waiver version ${consentVersion}`);
+  return consent;
+}
+
+export async function getConsentsHistory(userId: string) {
+  return repository.getUserConsents(userId);
+}
+
+// ==========================================
+// CONNECTED PORTAL ACCOUNTS (Layer 7)
+// ==========================================
+
+export async function connectPortalAccount(
+  userId: string,
+  portalId: string,
+  username: string,
+  passwordPlaintext: string
+) {
+  // Symmetrically encrypt password before database persistence (Standards Rule 7)
+  const passwordEncrypted = encrypt(passwordPlaintext);
+  
+  const account = await repository.upsertConnectedAccount(userId, portalId, username, passwordEncrypted);
+  await repository.logActivity(userId, 'account:linked', `Linked external portal account: ${portalId}`);
+  
+  return {
+    portalId: account.portal_id,
+    username: account.username,
+    updatedAt: account.updated_at,
+  };
+}
+
+export async function getConnectedPortals(userId: string) {
+  const accounts = await repository.getConnectedAccounts(userId);
+  return accounts.map(acc => ({
+    portalId: acc.portal_id,
+    username: acc.username,
+    updatedAt: acc.updated_at,
+  }));
+}
+
+/**
+ * Internal method used by background workers to retrieve decrypted credentials
+ * to submit applications (called only inside apps/api/src/modules/applications/).
+ */
+export async function getDecryptedPortalCredentials(userId: string, portalId: string) {
+  const account = await repository.getConnectedAccount(userId, portalId);
+  if (!account) {
+    throw new Error(`Connected portal account not found for ${portalId}`);
+  }
+
+  const passwordDecrypted = decrypt(account.password_encrypted);
+  return {
+    username: account.username,
+    password: passwordDecrypted,
+    cookies: account.cookies,
+  };
+}
+
+export async function disconnectPortal(userId: string, portalId: string) {
+  const deleted = await repository.deleteConnectedAccount(userId, portalId);
+  if (deleted) {
+    await repository.logActivity(userId, 'account:unlinked', `Unlinked external portal account: ${portalId}`);
+  }
+  return deleted;
+}
+
+// ==========================================
+// SESSIONS (Layer 5)
+// ==========================================
+
+export async function getSessionsList(userId: string) {
+  return repository.getActiveUserSessions(userId);
+}
+
+export async function revokeSession(userId: string, sessionId: string) {
+  // Retrieve session first to make sure it belongs to the requesting user
+  const sessions = await repository.getActiveUserSessions(userId);
+  const targetSession = sessions.find(s => s.id === sessionId);
+
+  if (!targetSession) {
+    throw { status: 404, message: 'Active session not found' };
+  }
+
+  await repository.deactivateSession(targetSession.token_hash);
+  await repository.logActivity(userId, 'session:revoked', `Revoked device session from IP: ${targetSession.ip_address}`);
+}
+
+// ==========================================
+// AUDIT LOGS (Layer 8)
+// ==========================================
+
+export async function getUserAuditTrail(userId: string) {
+  return repository.getActivityLogs(userId);
+}

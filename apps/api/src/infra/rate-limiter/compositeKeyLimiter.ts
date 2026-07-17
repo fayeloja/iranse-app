@@ -1,4 +1,4 @@
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 import { env } from '../../config/env.js';
 
 // Create a dedicated Redis client for rate limiting (separate from queues if needed)

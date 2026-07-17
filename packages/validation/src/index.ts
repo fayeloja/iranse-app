@@ -26,6 +26,13 @@ export const otpVerifySchema = z.object({
   code: z.string().length(6, 'OTP code must be exactly 6 digits'),
 });
 
+export const verifyNINSchema = z.object({
+  nin: z.string().length(11, 'NIN must be exactly 11 digits'),
+  firstName: z.string().min(1, 'First name is required'),
+  lastName: z.string().min(1, 'Last name is required'),
+  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date of birth must be YYYY-MM-DD'),
+});
+
 export const userSessionSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
@@ -140,6 +147,7 @@ export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type OtpSendInput = z.infer<typeof otpSendSchema>;
 export type OtpVerifyInput = z.infer<typeof otpVerifySchema>;
+export type VerifyNINInput = z.infer<typeof verifyNINSchema>;
 export type UserSession = z.infer<typeof userSessionSchema>;
 export type UserConsent = z.infer<typeof userConsentSchema>;
 export type ConnectedAccount = z.infer<typeof connectedAccountSchema>;
