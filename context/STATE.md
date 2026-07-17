@@ -1,19 +1,24 @@
 # STATE.md — Iransé
-
-_Last updated: 16 July 2026_
-
+ 
+_Last updated: 17 July 2026_
+ 
 ## Phase
-
+ 
 Concept validation and system design. No code written yet.
-
+ 
 ## Completed
-
+ 
 - Product concept validated as a pivot from "AI rewrites your CV" toward "AI orchestrates your own content" — see PROJECT.md core principle.
 - Full PRD drafted (`Iranse-PRD.md`), covering feature requirements, MVP phasing, risks, and success metrics.
 - System architecture designed: core pipeline, job ingestion with adapter pattern, matching engine scoring, resume assembly algorithm, cover letter assembly algorithm, application queue state machine — see ARCHITECTURE.md.
 - Career knowledge base data model (ERD) designed.
 - Six UI mockups explored: home screen, match review queue, daily digest, career profile, application tracking list, preferences/auto-apply settings.
 - Six-file `/context/` system set up (this file and its siblings).
+- Module dependency structure revised from package-per-capability to domain-driven modular monolith (8 domain modules, each with route/controller/service/repository/validation; infra packages kept separate for genuine plumbing only) — see DECISIONS.md #10.
+- Deployment topology decided: single codebase, two entrypoints (`server.ts`, `worker.ts`), built once as one image, deployed as separate scalable services; worker specialization via `WORKER_QUEUES` env var, not a code fork — see DECISIONS.md #11, #12 and ARCHITECTURE.md's Deployment topology section. This also resolves the earlier open question of whether `apps/workers` should split further by queue type.
+- Canonical validation source of truth shifted to `packages/validation` package to ensure proper Turborepo/workspace dependency flow (DECISIONS.md #13).
+- Database client and migrations strategy finalized: raw PostgreSQL queries using the `pg` driver with zero ORM overhead, coupled with schema migrations via `node-pg-migrate`.
+- Identity architecture evolved from simple authentication to a 10-layer Identity, Trust, and Consent Platform, incorporating RBAC, active device sessions, auto-apply legal consent records, encrypted credentials, audit logs, and profile snapshots (DECISIONS.md #14).
 
 ## Open questions (unresolved — do not assume an answer)
 
@@ -31,4 +36,6 @@ Concept validation and system design. No code written yet.
 - Finalize MVP job source shortlist.
 - Begin Phase 1 build per PRD section 10 (career knowledge base + ingestion from initial sources + matching engine + resume assembly + human-in-loop-only queue).
 - Consider validating the concept with real users (smoke test / Mom Test approach, as used for other projects) before committing to full build.
-- Once the codebase is scaffolded (monorepo decision included): add a thin `CLAUDE.md`/`AGENTS.md` with real build/test/lint commands and a pointer to `/context/`, plus `apps/web/CONTEXT.md` and `apps/api/CONTEXT.md` scoped to actual workspace conventions. Not needed before scaffolding exists — see WORKFLOWS.md read-order note.
+- `CLAUDE.md`, `apps/web/CONTEXT.md`, and `apps/api/CONTEXT.md` are created and in sync with the current architecture (see Completed section above). Revisit only once real `package.json`/build scripts exist, to replace the placeholder command list in `CLAUDE.md` with real ones.
+- Set up `eslint-plugin-boundaries` or `dependency-cruiser` in `apps/api` once real code exists, to enforce that modules only interact through each other's public service exports — see STANDARDS.md's "Mitigations for the single-codebase tradeoff".
+- Audit `job-discovery/adapters/` for any static top-level imports of heavy/optional dependencies (Puppeteer, Playwright) and convert them to dynamic imports so `server.ts` never loads them at boot — see STANDARDS.md.

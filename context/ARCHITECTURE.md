@@ -109,9 +109,74 @@ Known tech debt, tracked not solved at MVP: `theme_tags` as free text will drift
 
 ## Stack mapping
 
-- Backend: Node.js, Express, PostgreSQL, Redis (ioredis), BullMQ for queues/workers
+- Backend: Node.js, Express, PostgreSQL (raw `pg` client pool with custom transaction helpers), Redis (ioredis), BullMQ for queues/workers
+- Migrations: `node-pg-migrate`
 - Matching: pgvector for embedding similarity where semantic matching beats exact tag match
 - Frontend: React/Vite PWA, Feature-Sliced Design
-- Identity: licensed Nigerian KYC aggregator (vendor TBD — see STATE.md) sitting between Iransé and NIMC
+- Validation: `packages/validation` workspace package serves as the canonical source of truth for Zod schemas
+- Identity: 10-layer platform (JWT access + rotating refresh cookies) with licensed Nigerian KYC aggregator sitting between Iransé and NIMC
 - Payments: Paystack
 - Rate limiting: reuses the CGNAT-aware composite-key Redis rate limiter pattern originally built for Ranmi Suite, re-keyed as `{userId}:{portal}:{action}` instead of by IP
+
+## Module structure (domain-driven modular monolith)
+
+Business logic is organized by domain, not by technical layer. Each domain module is a folder containing its own route, controller, service, repository, and validation files — the whole lifecycle of a capability lives in one place. Modules map closely onto the PRD's feature sections (7.1-7.9), which is a signal the boundaries came from the product itself.
+
+```
+src/
+  modules/
+    career-profile/          # experiences, achievements, skills, resume variants, voice snippets
+    job-discovery/            # scheduler, source adapters (adapters/ subfolder), job store, dedup
+    matching/                 # dimension scorers, weighted aggregation
+    application-materials/    # resume + cover letter assembly
+    applications/             # application queue state machine, submission, tracking, snapshots
+    identity/                 # 10-layer Identity & Trust platform (auth, RBAC, sessions, consent, audit, risk)
+    billing/                  # subscriptions, Paystack orchestration
+    admin/                    # reads across other modules' repositories; no independent domain data of its own
+  infra/                      # clients/adapters only — no route or controller, not domains
+    database/
+    queue/
+    rate-limiter/
+    embeddings/                # shared embedding-similarity, used by matching and application-materials
+    encryption/                # AES-256-GCM symmetric encryption utility for job portal credentials
+    kyc-client/
+    payments/
+```
+
+Per-module file convention: `{module}.route.ts`, `{module}.controller.ts`, `{module}.service.ts`, `{module}.repository.ts`, `{module}.validation.ts`. Job source adapters (`job-discovery/adapters/*.adapter.ts`) live inside the `job-discovery` module rather than as a standalone package, since they're domain logic specific to discovery, not generic infrastructure.
+
+Both entrypoints (see Deployment topology below) import directly from `modules/*.service.ts` — there is exactly one implementation of each domain's business logic regardless of whether it's triggered over HTTP or by a queue job.
+
+## Deployment topology
+
+One codebase, two entrypoints, built once as a single container image:
+
+```
+src/server.ts   → mounts all modules/*.route.ts, boots the Express app
+src/worker.ts   → boots BullMQ processors that call modules/*.service.ts directly
+```
+
+Same image, different `CMD` per deployable — guarantees the API and workers always run the identical version of every domain module.
+
+**Independent scaling despite one codebase:** `apps/api` and the worker scale on different signals (request rate/latency vs. queue depth), so they run as separate services/deployments from the same image, never as one process. The worker is further split by queue via an env var, not a code fork:
+
+```ts
+const queues = (process.env.WORKER_QUEUES ?? 'all').split(',');
+```
+
+This lets `job-discovery` (high-volume, bursty, autoscales freely) and `applications` (rate-limit-bound, low-concurrency by design) run as separate worker services with independent scaling policies, without maintaining two separate `worker.ts` files.
+
+**Why horizontal scaling is safe:** the rate limiter's state lives centrally in Redis (`{userId}:{portal}:{action}`), not in-process — running 1 worker instance or 10 doesn't change the per-user-per-portal throttle ceiling. This is a direct consequence of the rate-limiting decision, not a separate mechanism.
+
+**Operational requirements, not optional:**
+- `server.ts` exposes a standard `/health` for load-balancer checks.
+- `worker.ts` needs a liveness signal too (minimal `/health` or a Redis heartbeat) — a stuck worker with no signal is invisible until `DeadLetter` counts spike.
+- Graceful shutdown on `SIGTERM`: workers must stop pulling new jobs but finish in-flight ones (`worker.close()` in BullMQ) before exiting, to avoid double-submitting an application mid-shutdown.
+
+**Phased infrastructure:**
+
+| Phase | Setup |
+|---|---|
+| MVP / early validation | Single small instance, PM2 managing `server.js` + 1-2 `worker.js` processes |
+| Real load | ECS Fargate: 1 api service (autoscale on request metrics) + 2 worker services split by `WORKER_QUEUES` (ingestion autoscales on queue depth; applications stays low-concurrency, capped) |
+| Team/scale grows | Kubernetes + KEDA for queue-depth-based autoscaling — not worth the operational overhead before there's real justification, even though it aligns with KCNA study |
