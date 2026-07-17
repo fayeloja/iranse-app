@@ -2,6 +2,7 @@ import { Worker, Job } from 'bullmq';
 import { env } from './config/env.js';
 import { redisConnection } from './infra/queue/connection.js';
 import { QUEUES } from './infra/queue/queues.js';
+import { runIngestion } from './modules/job-discovery/job-discovery.service.js';
 
 const activeWorkers: Worker[] = [];
 
@@ -18,9 +19,8 @@ if (targetQueues.includes(QUEUES.JOB_INGESTION)) {
     QUEUES.JOB_INGESTION,
     async (job: Job) => {
       console.log(`📥 Ingestion Worker: Processing job [${job.id}] (name: ${job.name})`);
-      // In Phase 5, this will trigger the job-discovery service parser/dedup logic
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      return { processed: true, source: job.data.sourceId || 'unknown' };
+      const result = await runIngestion(job.data?.sourceId);
+      return { processed: true, newJobsCount: result.newJobsCount };
     },
     {
       connection: redisConnection,
