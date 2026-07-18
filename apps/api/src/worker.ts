@@ -4,6 +4,7 @@ import { redisConnection } from './infra/queue/connection.js';
 import { QUEUES } from './infra/queue/queues.js';
 import { runIngestion } from './modules/job-discovery/job-discovery.service.js';
 import { matchJobAgainstAllUsers } from './modules/matching/matching.service.js';
+import { processApplicationSubmission } from './modules/applications/applications.service.js';
 
 const activeWorkers: Worker[] = [];
 
@@ -38,9 +39,8 @@ if (targetQueues.includes(QUEUES.APPLICATIONS)) {
     QUEUES.APPLICATIONS,
     async (job: Job) => {
       console.log(`📤 Applications Worker: Submitting job [${job.id}] (name: ${job.name})`);
-      // In Phase 7, this will call applications.service.ts to execute external submission
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      return { submitted: true, jobId: job.data.jobId };
+      const result = await processApplicationSubmission(job.data.applicationId);
+      return { submitted: true, status: result.status };
     },
     {
       connection: redisConnection,
