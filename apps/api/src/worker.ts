@@ -3,6 +3,7 @@ import { env } from './config/env.js';
 import { redisConnection } from './infra/queue/connection.js';
 import { QUEUES } from './infra/queue/queues.js';
 import { runIngestion } from './modules/job-discovery/job-discovery.service.js';
+import { matchJobAgainstAllUsers } from './modules/matching/matching.service.js';
 
 const activeWorkers: Worker[] = [];
 
@@ -56,9 +57,8 @@ if (targetQueues.includes(QUEUES.MATCHING)) {
     QUEUES.MATCHING,
     async (job: Job) => {
       console.log(`📊 Matching Worker: Scoring job [${job.id}] (name: ${job.name})`);
-      // In Phase 6, this will invoke the matching engine scorers
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      return { matched: true, score: 85 };
+      const result = await matchJobAgainstAllUsers(job.data.jobId);
+      return { matched: true, matchedUsersCount: result.matchedUsersCount };
     },
     {
       connection: redisConnection,
