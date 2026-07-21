@@ -5,6 +5,16 @@ import Button from '../../../shared/ui/Button.jsx';
 import { setAccessToken } from '../../../shared/api/httpClient.js';
 import { ShieldCheck, Eye, EyeOff, ArrowLeft, CheckCircle2 } from 'lucide-react';
 
+interface FieldErrors {
+  fullName?: string;
+  phone?: string;
+  email?: string;
+  password?: string;
+  resetToken?: string;
+  newPassword?: string;
+  general?: string;
+}
+
 export const LoginScreen: React.FC = () => {
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<'auth' | 'forgot_password' | 'reset_password'>('auth');
@@ -16,9 +26,15 @@ export const LoginScreen: React.FC = () => {
   const [resetToken, setResetToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+
+  const clearFieldError = (field: keyof FieldErrors) => {
+    if (fieldErrors[field]) {
+      setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+  };
 
   const normalizePhoneNumber = (raw: string): string => {
     let sanitized = raw.replace(/[\s\-\(\)]/g, ''); // strip spaces, hyphens, parentheses
@@ -31,25 +47,32 @@ export const LoginScreen: React.FC = () => {
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setError(null);
+    setFieldErrors({});
     setSuccessMessage(null);
+
+    const errors: FieldErrors = {};
 
     // Frontend validations
     if (!isLogin) {
       if (fullName.trim().length < 2) {
-        setError('Full name must be at least 2 characters long');
-        setIsLoading(false);
-        return;
+        errors.fullName = 'Full name must be at least 2 characters long';
       }
       const normalizedPhone = normalizePhoneNumber(phone);
       if (!/^\+?[1-9]\d{1,14}$/.test(normalizedPhone)) {
-        setError('Invalid phone number format. Please include country code (e.g. +234)');
-        setIsLoading(false);
-        return;
+        errors.phone = 'Invalid phone number format. Please include country code (e.g. +234)';
       }
     }
+
+    if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) {
+      errors.email = 'Please enter a valid email address';
+    }
+
     if (password.length < 8) {
-      setError('Password must be at least 8 characters long');
+      errors.password = 'Password must be at least 8 characters long';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       setIsLoading(false);
       return;
     }
@@ -68,7 +91,15 @@ export const LoginScreen: React.FC = () => {
 
       const result = await response.json();
       if (!response.ok) {
-        throw new Error(result.error?.message || 'Authentication failed');
+        const errMsg = result.error?.message || 'Authentication failed';
+        if (errMsg.toLowerCase().includes('email')) {
+          setFieldErrors({ email: errMsg });
+        } else if (errMsg.toLowerCase().includes('password')) {
+          setFieldErrors({ password: errMsg });
+        } else {
+          setFieldErrors({ general: errMsg });
+        }
+        return;
       }
 
       if (isLogin) {
@@ -83,7 +114,7 @@ export const LoginScreen: React.FC = () => {
         setSuccessMessage('Account created successfully! Please sign in with your email and password.');
       }
     } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+      setFieldErrors({ general: err.message || 'Authentication failed' });
     } finally {
       setIsLoading(false);
     }
@@ -92,8 +123,14 @@ export const LoginScreen: React.FC = () => {
   const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setError(null);
+    setFieldErrors({});
     setSuccessMessage(null);
+
+    if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) {
+      setFieldErrors({ email: 'Please enter a valid email address' });
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const response = await fetch('/api/v1/identity/forgot-password', {
@@ -115,7 +152,7 @@ export const LoginScreen: React.FC = () => {
       }
       setViewMode('reset_password');
     } catch (err: any) {
-      setError(err.message || 'Failed to request password reset');
+      setFieldErrors({ general: err.message || 'Failed to request password reset' });
     } finally {
       setIsLoading(false);
     }
@@ -124,11 +161,19 @@ export const LoginScreen: React.FC = () => {
   const handleResetPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setError(null);
+    setFieldErrors({});
     setSuccessMessage(null);
 
+    const errors: FieldErrors = {};
+    if (!resetToken.trim()) {
+      errors.resetToken = 'Reset token is required';
+    }
     if (newPassword.length < 8) {
-      setError('New password must be at least 8 characters long');
+      errors.newPassword = 'New password must be at least 8 characters long';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       setIsLoading(false);
       return;
     }
@@ -152,7 +197,7 @@ export const LoginScreen: React.FC = () => {
       setResetToken('');
       setNewPassword('');
     } catch (err: any) {
-      setError(err.message || 'Password reset failed');
+      setFieldErrors({ general: err.message || 'Password reset failed' });
     } finally {
       setIsLoading(false);
     }
@@ -220,7 +265,7 @@ export const LoginScreen: React.FC = () => {
               {/* Tabs */}
               <div style={{ display: 'flex', borderBottom: '1px solid rgba(255, 255, 255, 0.06)', marginBottom: '1.5rem' }}>
                 <button
-                  onClick={() => { setIsLogin(true); setError(null); setSuccessMessage(null); }}
+                  onClick={() => { setIsLogin(true); setFieldErrors({}); setSuccessMessage(null); }}
                   style={{
                     flex: 1,
                     padding: '0.75rem',
@@ -235,7 +280,7 @@ export const LoginScreen: React.FC = () => {
                   Sign In
                 </button>
                 <button
-                  onClick={() => { setIsLogin(false); setError(null); setSuccessMessage(null); }}
+                  onClick={() => { setIsLogin(false); setFieldErrors({}); setSuccessMessage(null); }}
                   style={{
                     flex: 1,
                     padding: '0.75rem',
@@ -260,10 +305,18 @@ export const LoginScreen: React.FC = () => {
                         type="text"
                         required
                         value={fullName}
-                        onChange={(e) => setFullName(e.target.value)}
+                        onChange={(e) => { setFullName(e.target.value); clearFieldError('fullName'); }}
                         placeholder="Enter your full name"
                         className="input-field"
+                        style={{
+                          borderColor: fieldErrors.fullName ? 'rgb(248, 113, 113)' : undefined,
+                        }}
                       />
+                      {fieldErrors.fullName && (
+                        <span style={{ color: 'rgb(248, 113, 113)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
+                          {fieldErrors.fullName}
+                        </span>
+                      )}
                     </div>
                     <div className="input-group">
                       <label className="input-label">Phone Number (with Country Code)</label>
@@ -271,10 +324,18 @@ export const LoginScreen: React.FC = () => {
                         type="text"
                         required
                         value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
+                        onChange={(e) => { setPhone(e.target.value); clearFieldError('phone'); }}
                         placeholder="+234 803 123 4567"
                         className="input-field"
+                        style={{
+                          borderColor: fieldErrors.phone ? 'rgb(248, 113, 113)' : undefined,
+                        }}
                       />
+                      {fieldErrors.phone && (
+                        <span style={{ color: 'rgb(248, 113, 113)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
+                          {fieldErrors.phone}
+                        </span>
+                      )}
                     </div>
                   </>
                 )}
@@ -285,10 +346,18 @@ export const LoginScreen: React.FC = () => {
                     type="email"
                     required
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => { setEmail(e.target.value); clearFieldError('email'); }}
                     placeholder="name@email.com"
                     className="input-field"
+                    style={{
+                      borderColor: fieldErrors.email ? 'rgb(248, 113, 113)' : undefined,
+                    }}
                   />
+                  {fieldErrors.email && (
+                    <span style={{ color: 'rgb(248, 113, 113)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
+                      {fieldErrors.email}
+                    </span>
+                  )}
                 </div>
 
                 <div className="input-group">
@@ -297,7 +366,7 @@ export const LoginScreen: React.FC = () => {
                     {isLogin && (
                       <button
                         type="button"
-                        onClick={() => { setViewMode('forgot_password'); setError(null); setSuccessMessage(null); }}
+                        onClick={() => { setViewMode('forgot_password'); setFieldErrors({}); setSuccessMessage(null); }}
                         style={{
                           background: 'none',
                           border: 'none',
@@ -316,10 +385,15 @@ export const LoginScreen: React.FC = () => {
                       type={showPassword ? 'text' : 'password'}
                       required
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={(e) => { setPassword(e.target.value); clearFieldError('password'); }}
                       placeholder="••••••••"
                       className="input-field"
-                      style={{ paddingRight: '2.5rem', width: '100%', boxSizing: 'border-box' }}
+                      style={{
+                        paddingRight: '2.5rem',
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        borderColor: fieldErrors.password ? 'rgb(248, 113, 113)' : undefined,
+                      }}
                     />
                     <button
                       type="button"
@@ -341,11 +415,16 @@ export const LoginScreen: React.FC = () => {
                       {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
+                  {fieldErrors.password && (
+                    <span style={{ color: 'rgb(248, 113, 113)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
+                      {fieldErrors.password}
+                    </span>
+                  )}
                 </div>
 
-                {error && (
+                {fieldErrors.general && (
                   <div style={{ color: 'rgb(248, 113, 113)', fontSize: '0.8rem', textAlign: 'center', margin: '0.5rem 0' }}>
-                    {error}
+                    {fieldErrors.general}
                   </div>
                 )}
 
@@ -361,7 +440,7 @@ export const LoginScreen: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                 <button
                   type="button"
-                  onClick={() => { setViewMode('auth'); setError(null); }}
+                  onClick={() => { setViewMode('auth'); setFieldErrors({}); }}
                   style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer', padding: 0 }}
                 >
                   <ArrowLeft size={18} />
@@ -378,15 +457,23 @@ export const LoginScreen: React.FC = () => {
                   type="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => { setEmail(e.target.value); clearFieldError('email'); }}
                   placeholder="name@email.com"
                   className="input-field"
+                  style={{
+                    borderColor: fieldErrors.email ? 'rgb(248, 113, 113)' : undefined,
+                  }}
                 />
+                {fieldErrors.email && (
+                  <span style={{ color: 'rgb(248, 113, 113)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
+                    {fieldErrors.email}
+                  </span>
+                )}
               </div>
 
-              {error && (
+              {fieldErrors.general && (
                 <div style={{ color: 'rgb(248, 113, 113)', fontSize: '0.8rem', textAlign: 'center' }}>
-                  {error}
+                  {fieldErrors.general}
                 </div>
               )}
 
@@ -401,7 +488,7 @@ export const LoginScreen: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                 <button
                   type="button"
-                  onClick={() => { setViewMode('forgot_password'); setError(null); }}
+                  onClick={() => { setViewMode('forgot_password'); setFieldErrors({}); }}
                   style={{ background: 'none', border: 'none', color: '#ffffff', cursor: 'pointer', padding: 0 }}
                 >
                   <ArrowLeft size={18} />
@@ -415,10 +502,18 @@ export const LoginScreen: React.FC = () => {
                   type="text"
                   required
                   value={resetToken}
-                  onChange={(e) => setResetToken(e.target.value)}
+                  onChange={(e) => { setResetToken(e.target.value); clearFieldError('resetToken'); }}
                   placeholder="Paste 64-character token"
                   className="input-field"
+                  style={{
+                    borderColor: fieldErrors.resetToken ? 'rgb(248, 113, 113)' : undefined,
+                  }}
                 />
+                {fieldErrors.resetToken && (
+                  <span style={{ color: 'rgb(248, 113, 113)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
+                    {fieldErrors.resetToken}
+                  </span>
+                )}
               </div>
 
               <div className="input-group">
@@ -427,15 +522,23 @@ export const LoginScreen: React.FC = () => {
                   type="password"
                   required
                   value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
+                  onChange={(e) => { setNewPassword(e.target.value); clearFieldError('newPassword'); }}
                   placeholder="Minimum 8 characters"
                   className="input-field"
+                  style={{
+                    borderColor: fieldErrors.newPassword ? 'rgb(248, 113, 113)' : undefined,
+                  }}
                 />
+                {fieldErrors.newPassword && (
+                  <span style={{ color: 'rgb(248, 113, 113)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block' }}>
+                    {fieldErrors.newPassword}
+                  </span>
+                )}
               </div>
 
-              {error && (
+              {fieldErrors.general && (
                 <div style={{ color: 'rgb(248, 113, 113)', fontSize: '0.8rem', textAlign: 'center' }}>
-                  {error}
+                  {fieldErrors.general}
                 </div>
               )}
 
