@@ -186,3 +186,44 @@ export async function getAuditTrail(req: Request, res: Response, next: NextFunct
     next(error);
   }
 }
+
+export async function sendOTP(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { phone, purpose } = req.body;
+    const result = await service.sendOTP(phone, purpose);
+    res.status(200).json({ status: 'success', data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function verifyOTP(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { phone, code, purpose } = req.body;
+    const userId = req.user?.id;
+    const result = await service.verifyOTP(phone, code, purpose, userId);
+    res.status(200).json({ status: 'success', data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function forgotPassword(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { email } = req.body;
+    const result = await service.requestPasswordReset(email);
+    res.status(200).json({ status: 'success', data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function resetPassword(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { token, newPassword } = req.body;
+    const result = await service.resetPassword(token, newPassword);
+    res.status(200).json({ status: 'success', data: result });
+  } catch (error) {
+    next(error);
+  }
+}

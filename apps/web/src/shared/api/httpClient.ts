@@ -13,7 +13,7 @@ export function getAccessToken(): string | null {
  * Executes rotating refresh token exchanges on the backend (Identity Layer 1).
  * Deduplicates concurrent refresh requests using a shared promise buffer.
  */
-async function rotateToken(): Promise<string | null> {
+export async function rotateToken(): Promise<string | null> {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {

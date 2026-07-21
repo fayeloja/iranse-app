@@ -100,6 +100,74 @@ export async function updateUserVerificationStatus(
   return result.rows[0] || null;
 }
 
+export async function updateUserPassword(
+  userId: string,
+  passwordHash: string
+): Promise<boolean> {
+  const sql = `
+    UPDATE users
+    SET password_hash = $2, updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1;
+  `;
+  const result = await query(sql, [userId, passwordHash]);
+  return result.rowCount ? result.rowCount > 0 : false;
+}
+
+// In-memory OTP & Reset Token Store with TTL (Identity Layer 1 & Layer 2)
+interface OTPRecord {
+  phone: string;
+  code: string;
+  purpose: string;
+  expiresAt: number;
+}
+
+interface ResetTokenRecord {
+  userId: string;
+  tokenHash: string;
+  expiresAt: number;
+}
+
+const otpStore = new Map<string, OTPRecord>();
+const resetTokenStore = new Map<string, ResetTokenRecord>();
+
+export async function saveOTP(phone: string, code: string, purpose: string, ttlMs: number = 600000): Promise<void> {
+  const key = `${phone}:${purpose}`;
+  otpStore.set(key, { phone, code, purpose, expiresAt: Date.now() + ttlMs });
+}
+
+export async function getOTP(phone: string, purpose: string): Promise<OTPRecord | null> {
+  const key = `${phone}:${purpose}`;
+  const record = otpStore.get(key);
+  if (!record) return null;
+  if (Date.now() > record.expiresAt) {
+    otpStore.delete(key);
+    return null;
+  }
+  return record;
+}
+
+export async function deleteOTP(phone: string, purpose: string): Promise<void> {
+  otpStore.delete(`${phone}:${purpose}`);
+}
+
+export async function savePasswordResetToken(userId: string, tokenHash: string, ttlMs: number = 3600000): Promise<void> {
+  resetTokenStore.set(tokenHash, { userId, tokenHash, expiresAt: Date.now() + ttlMs });
+}
+
+export async function getPasswordResetToken(tokenHash: string): Promise<ResetTokenRecord | null> {
+  const record = resetTokenStore.get(tokenHash);
+  if (!record) return null;
+  if (Date.now() > record.expiresAt) {
+    resetTokenStore.delete(tokenHash);
+    return null;
+  }
+  return record;
+}
+
+export async function deletePasswordResetToken(tokenHash: string): Promise<void> {
+  resetTokenStore.delete(tokenHash);
+}
+
 // ==========================================
 // DEVICE SESSIONS (Layer 5)
 // ==========================================

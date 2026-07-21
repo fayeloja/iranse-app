@@ -1,14 +1,18 @@
 import React from 'react';
 import Card from '../../../shared/ui/Card.jsx';
 import Button from '../../../shared/ui/Button.jsx';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight, Sparkles, ShieldCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import OnboardingModal from '../../onboarding/ui/OnboardingModal.jsx';
 
 export const HomeScreen: React.FC = () => {
   const navigate = useNavigate();
+  const [showOnboarding, setShowOnboarding] = React.useState(false);
 
   return (
     <div className="fade-in-up" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      {showOnboarding && <OnboardingModal onClose={() => setShowOnboarding(false)} />}
+
       {/* Welcome Banner */}
       <Card variant="glow" style={{ padding: '1.75rem' }}>
         <h2 style={{ fontSize: '1.75rem', fontFamily: 'var(--font-display)', fontWeight: 800, marginBottom: '0.5rem' }}>
@@ -17,9 +21,12 @@ export const HomeScreen: React.FC = () => {
         <p style={{ color: 'hsl(var(--color-text-secondary))', fontSize: '0.95rem', marginBottom: '1.25rem' }}>
           Iransé has ingested your resume and is monitoring Lagos channels for matches.
         </p>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
           <Button variant="primary" size="md" onClick={() => navigate('/match-review')} className="flex items-center gap-2">
             View Matches <Sparkles size={16} style={{ marginLeft: '4px' }} />
+          </Button>
+          <Button variant="secondary" size="md" onClick={() => setShowOnboarding(true)} className="flex items-center gap-2">
+            Complete Onboarding <ShieldCheck size={16} style={{ marginLeft: '4px' }} />
           </Button>
         </div>
       </Card>

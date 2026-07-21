@@ -141,36 +141,53 @@ I am excited to bring these experiences to ${job.company} and contribute to your
 Sincerely,
 [Candidate Name]`;
   } else {
-    // Call Gemini API to write a tailored cover letter matching candidate style and selected bullets
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
-    const prompt = `Write a professional cover letter for a candidate applying to this job.
-    Job Title: ${job.title}
-    Company: ${job.company}
-    Location: ${job.location}
-    Job Description: ${job.description}
-    
-    Candidate Style Guide (Write in this tone and voice):
-    "${voiceStyleContent}"
-    
-    Candidate Key Accomplishments to reference:
-    ${tailoredBulletPoints.map((bp) => `- ${bp}`).join('\n')}
-    
-    Keep the cover letter concise, clean, and engaging. Do not output anything other than the cover letter text.`;
+    try {
+      // Call Gemini API to write a tailored cover letter matching candidate style and selected bullets
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+      const prompt = `Write a professional cover letter for a candidate applying to this job.
+      Job Title: ${job.title}
+      Company: ${job.company}
+      Location: ${job.location}
+      Job Description: ${job.description}
+      
+      Candidate Style Guide (Write in this tone and voice):
+      "${voiceStyleContent}"
+      
+      Candidate Key Accomplishments to reference:
+      ${tailoredBulletPoints.map((bp) => `- ${bp}`).join('\n')}
+      
+      Keep the cover letter concise, clean, and engaging. Do not output anything other than the cover letter text.`;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-      }),
-    });
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+      });
 
-    if (response.ok) {
-      const resBody = (await response.json()) as any;
-      coverLetter = resBody.candidates[0].content.parts[0].text;
-    } else {
-      console.warn('Gemini API call failed for materials tailoring. Falling back to template.');
-      coverLetter = `Dear Hiring Team at ${job.company}, ...`; // fallback
+      if (response.ok) {
+        const resBody = (await response.json()) as any;
+        coverLetter = resBody.candidates[0].content.parts[0].text;
+      } else {
+        throw new Error(`Gemini API returned status ${response.status}`);
+      }
+    } catch (err: any) {
+      console.warn(`⚠️ Gemini API call failed for materials tailoring (${err.message}). Falling back to template.`);
+      // Dynamic mock template fallback
+      coverLetter = `Dear Hiring Team at ${job.company},
+
+I am writing to express my strong interest in the ${job.title} position in ${job.location}.
+
+${voiceStyleContent}
+
+During my career, I have delivered key accomplishments that align with your goals:
+${tailoredBulletPoints.map((bp) => `- ${bp}`).join('\n')}
+
+I am excited to bring these experiences to ${job.company} and contribute to your team.
+
+Sincerely,
+[Candidate Name]`;
     }
   }
 

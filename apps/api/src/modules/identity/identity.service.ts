@@ -131,6 +131,72 @@ export async function logout(refreshTokenString: string) {
 }
 
 // ==========================================
+// OTP & PASSWORD RECOVERY SERVICES
+// ==========================================
+
+export async function sendOTP(phone: string, purpose: string) {
+  // Generate 6-digit OTP code
+  const code = process.env.NODE_ENV === 'test' ? '123456' : Math.floor(100000 + Math.random() * 900000).toString();
+  await repository.saveOTP(phone, code, purpose);
+  
+  console.log(`[OTP Service] Sent OTP ${code} to ${phone} for purpose ${purpose}`);
+  return { message: 'OTP sent successfully', phone, purpose, devCode: process.env.NODE_ENV !== 'production' ? code : undefined };
+}
+
+export async function verifyOTP(phone: string, code: string, purpose: string, userId?: string) {
+  const record = await repository.getOTP(phone, purpose);
+  if (!record || record.code !== code) {
+    throw { status: 400, message: 'Invalid or expired OTP code' };
+  }
+
+  await repository.deleteOTP(phone, purpose);
+
+  if (userId) {
+    await repository.updateUserVerificationStatus(userId, 'phone_verified');
+    await repository.logActivity(userId, 'kyc:phone_verified', `Phone ${phone} verified via OTP`);
+  }
+
+  return { verified: true, message: 'Phone number verified successfully' };
+}
+
+export async function requestPasswordReset(email: string) {
+  const user = await repository.getUserByEmail(email);
+  if (!user) {
+    // Return generic message to prevent email enumeration
+    return { message: 'If the email exists, a password reset token has been issued.' };
+  }
+
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(rawToken);
+
+  await repository.savePasswordResetToken(user.id, tokenHash);
+  await repository.logActivity(user.id, 'auth:password_reset_requested', `Password reset token generated for ${email}`);
+
+  console.log(`[Password Reset] Generated reset token for ${email}: ${rawToken}`);
+  return {
+    message: 'If the email exists, a password reset token has been issued.',
+    resetToken: process.env.NODE_ENV !== 'production' ? rawToken : undefined,
+  };
+}
+
+export async function resetPassword(token: string, newPasswordPlaintext: string) {
+  const tokenHash = hashToken(token);
+  const resetRecord = await repository.getPasswordResetToken(tokenHash);
+
+  if (!resetRecord) {
+    throw { status: 400, message: 'Invalid or expired password reset token' };
+  }
+
+  const passwordHash = await argon2.hash(newPasswordPlaintext);
+  await repository.updateUserPassword(resetRecord.userId, passwordHash);
+  await repository.deactivateAllUserSessions(resetRecord.userId);
+  await repository.deletePasswordResetToken(tokenHash);
+  await repository.logActivity(resetRecord.userId, 'auth:password_reset_completed', 'Password successfully reset');
+
+  return { message: 'Password has been reset successfully. Please sign in with your new password.' };
+}
+
+// ==========================================
 // IDENTITY VERIFICATION SERVICES (Layer 2 & 3)
 // ==========================================
 

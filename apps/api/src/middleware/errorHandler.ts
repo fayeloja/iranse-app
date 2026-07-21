@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { logger } from '../infra/logger/logger.js';
 
 export interface AppError extends Error {
   status?: number;
@@ -16,7 +17,7 @@ export function errorHandler(
   res: Response,
   next: NextFunction
 ) {
-  console.error('❌ Express Error Handler caught:', err);
+  logger.error(err, '❌ Express Error Handler caught');
 
   const status = err.status || err.statusCode || 500;
   const message = err.message || 'Internal Server Error';

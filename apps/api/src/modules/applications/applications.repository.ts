@@ -63,10 +63,10 @@ export async function updateApplicationStatus(
 ): Promise<ApplicationRow | null> {
   const sql = `
     UPDATE applications
-    SET status = $2,
+    SET status = $2::queue_status,
         error_log = COALESCE($3, error_log),
         attempts = case when $4 = true then attempts + 1 else attempts end,
-        submitted_at = case when $2 = 'Submitted' then CURRENT_TIMESTAMP else submitted_at end,
+        submitted_at = case when $2::text = 'Submitted' then CURRENT_TIMESTAMP else submitted_at end,
         updated_at = CURRENT_TIMESTAMP
     WHERE id = $1
     RETURNING *;

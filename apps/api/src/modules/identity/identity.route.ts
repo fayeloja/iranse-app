@@ -5,6 +5,10 @@ import { validateRequest } from '../../middleware/requestValidation.js';
 import {
   registerSchema,
   loginSchema,
+  otpSendSchema,
+  otpVerifySchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
   verifyNINSchema,
   userConsentSchema,
   connectedAccountSchema,
@@ -13,12 +17,16 @@ import {
 const router = Router();
 
 // ==========================================
-// 1. PUBLIC AUTHENTICATION ROUTES (Layer 1)
+// 1. PUBLIC AUTHENTICATION & RECOVERY ROUTES (Layer 1 & 2)
 // ==========================================
 router.post('/register', validateRequest({ body: registerSchema }), controller.register);
 router.post('/login', validateRequest({ body: loginSchema }), controller.login);
 router.post('/refresh', controller.refresh);
 router.post('/logout', controller.logout);
+router.post('/otp/send', validateRequest({ body: otpSendSchema }), controller.sendOTP);
+router.post('/otp/verify', validateRequest({ body: otpVerifySchema }), controller.verifyOTP);
+router.post('/forgot-password', validateRequest({ body: forgotPasswordSchema }), controller.forgotPassword);
+router.post('/reset-password', validateRequest({ body: resetPasswordSchema }), controller.resetPassword);
 
 // ==========================================
 // 2. IDENTITY VERIFICATION ROUTES (Layer 2 & 3)

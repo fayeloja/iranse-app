@@ -1,8 +1,17 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
+import path from 'path';
+import fs from 'fs';
 
-// Load variables from .env file
-dotenv.config();
+// Load variables from .env file, searching parent directories dynamically
+let envPath = path.resolve(process.cwd(), '.env');
+if (!fs.existsSync(envPath)) {
+  envPath = path.resolve(process.cwd(), '../../.env');
+}
+if (!fs.existsSync(envPath)) {
+  envPath = path.resolve(process.cwd(), '../.env');
+}
+dotenv.config({ path: envPath });
 
 const envSchema = z.object({
   PORT: z.string().transform((val) => parseInt(val, 10)).default('3000'),
@@ -17,6 +26,8 @@ const envSchema = z.object({
   PAYSTACK_SECRET_KEY: z.string().optional(),
   KYC_VENDOR_API_KEY: z.string().optional(),
   WORKER_QUEUES: z.string().default('all'),
+  GEMINI_API_KEY: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

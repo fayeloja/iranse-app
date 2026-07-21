@@ -1,13 +1,16 @@
 {
-  "name": "api",
+  "name": "@iranse/api",
   "version": "1.0.0",
+  "packageManager": "npm@11.1.0",
+  "description": "API for AI-powered job matching platform",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "worker:dev": "tsx watch src/worker.ts",
     "build": "tsc",
-    "db:migrate": "node-pg-migrate --migrations-dir src/infra/database/migrations"
+    "db:migrate": "node-pg-migrate --migrations-dir src/infra/database/migrations --envPath ../../.env up",
+    "lint:deps": "depcruise src --config .dependency-cruiser.cjs"
   },
   "dependencies": {
     "argon2": "^0.40.3",
@@ -19,6 +22,7 @@
     "jsonwebtoken": "^9.0.2",
     "node-pg-migrate": "^7.4.0",
     "pg": "^8.12.0",
+    "pino": "^9.1.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -27,6 +31,8 @@
     "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20.14.9",
     "@types/pg": "^8.11.6",
+    "dependency-cruiser": "^16.3.0",
+    "pino-pretty": "^11.1.0",
     "tsx": "^4.15.7",
     "typescript": "^5.4.5"
   }

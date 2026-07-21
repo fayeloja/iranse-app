@@ -1,6 +1,7 @@
 {
   "name": "iranse-app",
   "version": "1.0.0",
+  "packageManager": "npm@11.1.0",
   "private": true,
   "description": "AI-powered job matching platform",
   "workspaces": [
@@ -27,7 +28,7 @@
     "url": "git+https://github.com/fayeloja/iranse-app.git"
   },
   "keywords": [],
-  "author": "",
+  "author": "Fatai Ayeloja",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {

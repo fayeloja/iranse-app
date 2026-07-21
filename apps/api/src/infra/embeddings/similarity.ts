@@ -12,51 +12,58 @@ export async function getEmbedding(text: string): Promise<number[]> {
   const geminiKey = process.env.GEMINI_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
 
-  if (!geminiKey && !openaiKey) {
-    // Generate a deterministic 1536-dimension float array for mock testing
-    const mockVector = new Array(1536).fill(0).map((_, i) => {
+  const generateMock = () => {
+    return new Array(1536).fill(0).map((_, i) => {
       const code = text.charCodeAt(i % text.length) || 0;
       return Math.sin(code + i) / 10;
     });
-    return mockVector;
+  };
+
+  if (!geminiKey && !openaiKey) {
+    return generateMock();
   }
 
-  // 1. Google Gemini Embeddings API (Preferred)
-  if (geminiKey) {
-    const model = 'text-embedding-004';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${geminiKey}`;
-    const response = await fetch(url, {
+  try {
+    // 1. Google Gemini Embeddings API (Preferred)
+    if (geminiKey) {
+      const model = 'text-embedding-004';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${geminiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: `models/${model}`,
+          content: { parts: [{ text }] },
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Gemini Embedding API failed: ${response.status} ${response.statusText}`);
+      }
+      const data = (await response.json()) as any;
+      return data.embedding.values;
+    }
+
+    // 2. OpenAI Embeddings API (Fallback)
+    const response = await fetch('https://api.openai.com/v1/embeddings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${openaiKey}`,
+      },
       body: JSON.stringify({
-        model: `models/${model}`,
-        content: { parts: [{ text }] },
+        input: text,
+        model: 'text-embedding-3-small',
       }),
     });
     if (!response.ok) {
-      throw new Error(`Gemini Embedding API failed: ${response.status} ${response.statusText}`);
+      throw new Error(`OpenAI Embedding API failed: ${response.status} ${response.statusText}`);
     }
     const data = (await response.json()) as any;
-    return data.embedding.values;
+    return data.data[0].embedding;
+  } catch (err: any) {
+    console.warn(`⚠️ Embedding API failed (${err.message}). Falling back to deterministic mock vector...`);
+    return generateMock();
   }
-
-  // 2. OpenAI Embeddings API (Fallback)
-  const response = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${openaiKey}`,
-    },
-    body: JSON.stringify({
-      input: text,
-      model: 'text-embedding-3-small',
-    }),
-  });
-  if (!response.ok) {
-    throw new Error(`OpenAI Embedding API failed: ${response.status} ${response.statusText}`);
-  }
-  const data = (await response.json()) as any;
-  return data.data[0].embedding;
 }
 
 /**

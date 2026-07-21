@@ -180,3 +180,25 @@ This lets `job-discovery` (high-volume, bursty, autoscales freely) and `applicat
 | MVP / early validation | Single small instance, PM2 managing `server.js` + 1-2 `worker.js` processes |
 | Real load | ECS Fargate: 1 api service (autoscale on request metrics) + 2 worker services split by `WORKER_QUEUES` (ingestion autoscales on queue depth; applications stays low-concurrency, capped) |
 | Team/scale grows | Kubernetes + KEDA for queue-depth-based autoscaling — not worth the operational overhead before there's real justification, even though it aligns with KCNA study |
+
+---
+
+### Observability stack (open source, zero additional cost)
+All services run as Docker containers alongside the app at MVP scale.
+
+| Pillar | Tool | Purpose |
+|--------|------|---------|
+| Logs | Pino → Grafana Loki | Structured JSON logs, searchable |
+| Metrics | prom-client → Prometheus → Grafana | Request rates, queue depth, latency |
+| Errors | Sentry | Unhandled exceptions, error grouping |
+| Queues | Bull Board | BullMQ job status and failure inspection |
+| DB | pg_stat_statements | Slow query detection |
+
+Operational alerts (Prometheus rules — Sentry does not cover these):
+- No runner accepted a job in >10 minutes
+- Webhook processing backlog >50 items
+- Settlement job failed
+- Active runner location not updated in >2 minutes during active trip (safety signal)
+- Database connection pool >80% utilised
+
+---
