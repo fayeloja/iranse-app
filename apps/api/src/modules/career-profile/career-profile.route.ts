@@ -76,6 +76,12 @@ router.delete(
   requirePermissions(['profile:write']),
   controller.deleteAchievement
 );
+router.get(
+  '/skill',
+  authenticate,
+  requirePermissions(['profile:read']),
+  controller.getSkills
+);
 
 // ==========================================
 // 3. RESUME VARIANTS ENDPOINTS

@@ -82,8 +82,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onClose }) => 
         padding: '1.5rem',
       }}
     >
-      <div style={{ width: '100%', maxWidth: '440px' }}>
-        <Card variant="glass">
+      <div style={{ width: '100%', maxWidth: '440px', maxHeight: 'calc(100vh - 3rem)', overflowY: 'auto', boxSizing: 'border-box' }}>
+        <Card variant="glass" style={{ boxSizing: 'border-box', overflow: 'hidden' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <ShieldCheck size={22} style={{ color: 'hsl(var(--color-primary))' }} />
@@ -98,7 +98,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onClose }) => 
           </div>
 
           {step === 'nin' && (
-            <form onSubmit={handleVerifyNIN} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <form onSubmit={handleVerifyNIN} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%', boxSizing: 'border-box' }}>
               <p style={{ fontSize: '0.85rem', color: 'hsl(var(--color-text-secondary))' }}>
                 Verify your identity using your 11-digit NIN. (Optional: You can skip this step and complete it later in Settings).
               </p>
@@ -116,8 +116,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onClose }) => 
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                <div className="input-group">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', width: '100%', boxSizing: 'border-box' }}>
+                <div className="input-group" style={{ minWidth: 0, marginBottom: 0 }}>
                   <label className="input-label">First Name</label>
                   <input
                     type="text"
@@ -128,7 +128,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onClose }) => 
                     className="input-field"
                   />
                 </div>
-                <div className="input-group">
+                <div className="input-group" style={{ minWidth: 0, marginBottom: 0 }}>
                   <label className="input-label">Last Name</label>
                   <input
                     type="text"

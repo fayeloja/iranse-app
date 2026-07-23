@@ -60,9 +60,12 @@ export const PreferencesScreen: React.FC = () => {
     },
   });
 
+  const [consentError, setConsentError] = React.useState<string | null>(null);
+
   // 4. Mutation: Sign Consent Waiver
   const signConsentMutation = useMutation({
     mutationFn: async () => {
+      setConsentError(null);
       // Retrieve client public IP or fallback
       let clientIp = '102.89.44.11'; // Default Lagos fallback
       try {
@@ -84,7 +87,11 @@ export const PreferencesScreen: React.FC = () => {
       });
     },
     onSuccess: () => {
+      setConsentError(null);
       queryClient.invalidateQueries({ queryKey: ['consents'] });
+    },
+    onError: (err: any) => {
+      setConsentError(err?.error?.message || err?.message || 'Failed to record legal consent waiver.');
     },
   });
 
@@ -128,25 +135,23 @@ export const PreferencesScreen: React.FC = () => {
             )}
           </div>
         ) : (
-          <button
-            onClick={() => signConsentMutation.mutate()}
-            disabled={signConsentMutation.isPending}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem',
-              background: 'none',
-              border: 'none',
-              color: '#ffffff',
-              fontWeight: 600,
-              fontSize: '0.875rem',
-              cursor: 'pointer',
-              padding: '0.25rem 0',
-            }}
-          >
-            <Square size={20} style={{ color: 'hsl(var(--color-text-muted))' }} />
-            <span>Click to sign legal consent waiver</span>
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <Button
+              variant="primary"
+              size="md"
+              fullWidth
+              onClick={() => signConsentMutation.mutate()}
+              isLoading={signConsentMutation.isPending}
+            >
+              <Square size={18} style={{ marginRight: '0.5rem' }} />
+              <span>Sign Legal Consent Waiver</span>
+            </Button>
+            {consentError && (
+              <span style={{ fontSize: '0.75rem', color: 'rgb(248, 113, 113)' }}>
+                ⚠️ {consentError}
+              </span>
+            )}
+          </div>
         )}
       </Card>
 

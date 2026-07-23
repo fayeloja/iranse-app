@@ -2,6 +2,9 @@ import { getEmbedding } from '../../infra/embeddings/similarity.js';
 import * as repository from './career-profile.repository.js';
 import { transaction } from '../../infra/database/client.js';
 import { aiService } from '../../services/index.js';
+import * as pdfParsePkg from 'pdf-parse';
+
+const pdfParse: any = (pdfParsePkg as any).default || pdfParsePkg;
 
 // ==========================================
 // EXPERIENCES
@@ -145,6 +148,10 @@ export async function deleteAchievement(userId: string, id: string) {
   }
 }
 
+export async function getSkillsList(userId: string) {
+  return repository.getUserSkills(userId);
+}
+
 // ==========================================
 // RESUME VARIANTS
 // ==========================================
@@ -255,6 +262,38 @@ export interface ParsedCVProfile {
 }
 
 /**
+ * Extracts text from PDF, UTF-8 text, or binary file buffers.
+ */
+async function extractTextFromPDFBuffer(buffer: Buffer): Promise<string> {
+  try {
+    const data = await pdfParse(buffer);
+    if (data && data.text && data.text.trim().length > 0) {
+      // Strip leftover control characters and PDF streams
+      return data.text.replace(/[\x00-\x09\x0B\x0C\x0E-\x1F]/g, ' ').trim();
+    }
+  } catch (err: any) {
+    console.warn(`⚠️ pdf-parse stream extraction failed (${err?.message || err}). Trying text fallback...`);
+  }
+
+  // Fallback 1: UTF-8 string conversion (works for .txt, .md, .csv)
+  const utf8Str = buffer.toString('utf8');
+  if (!utf8Str.includes('\0') && utf8Str.trim().length > 30) {
+    // Strip XML/HTML tags if uploaded file was DOCX/XML
+    return utf8Str.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  // Fallback 2: Filter printable ASCII strings from raw buffer
+  const rawStr = buffer.toString('latin1');
+  const printableRegex = /[a-zA-Z0-9.,;:()'""\s-]{4,}/g;
+  const matches = rawStr.match(printableRegex) || [];
+  const filtered = matches.filter(
+    s => !s.startsWith('/') && !s.includes('endobj') && !s.includes('stream') && !s.includes('Adobe') && !s.includes('xml')
+  );
+
+  return filtered.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
  * Extracts CV text and calls Gemini Structured Output API to parse details.
  * Performs database insertion of experiences, achievements, vector embeddings,
  * skills taxonomies, and voice snippets in a transaction.
@@ -262,38 +301,40 @@ export interface ParsedCVProfile {
 export async function parseAndSeedProfile(userId: string, fileBuffer: Buffer, mimeType: string) {
   let cvText = '';
 
-  // For the MVP, we assume text or simple doc file upload.
-  // Stubs PDF/binary text conversion by checking mimeType
-  if (mimeType.startsWith('text/')) {
+  if (mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('markdown')) {
     cvText = fileBuffer.toString('utf8');
   } else {
-    // If it's a PDF, we'd normally run a pdf extractor (dynamic import in production - Standards Rule 11).
-    // For local test validation, we will fallback to a stub raw text or mock details
-    cvText = `Mock CV profile for developer Fatai Ayeloja.
-    Experience:
-    Software Engineer at Iransé Inc., Lagos from 2024-01-01 to 2025-06-30.
-    - Improved database loading speeds by 40% using pgvector cosine indexes.
-    - Built a sliding window Redis rate limiter handling 100k requests/min.
-    
-    Skills: TypeScript, PostgreSQL, Redis, Node.js, Systems Architecture.`;
+    cvText = await extractTextFromPDFBuffer(fileBuffer);
+  }
+
+  console.log(`📄 Extracted ${cvText.length} chars of CV text for parsing. Preview: "${cvText.slice(0, 150)}..."`);
+
+  // Sanity check word count of extracted text to ensure actual resume content exists
+  const words = cvText.trim().split(/\s+/).filter(w => w.length > 1);
+  if (!cvText || words.length < 15) {
+    throw {
+      status: 400,
+      message: 'Could not extract readable resume text from document. Please upload a PDF containing selectable text or a plain text file.',
+    };
   }
 
   let parsedProfile: ParsedCVProfile;
 
   try {
-    const prompt = `Analyze this CV text and return a JSON matching this structure:
+    const prompt = `Analyze this candidate CV text and extract all work experiences, achievements, skills, and voice snippets.
+    Return a JSON matching this structure:
     {
       "experiences": [
         {
           "title": "Job Title",
           "company": "Company Name",
-          "location": "Location",
-          "startDate": "YYYY-MM-DD",
-          "endDate": "YYYY-MM-DD" or null,
+          "location": "Location (e.g. Lagos, Nigeria or Remote)",
+          "startDate": "YYYY-MM-DD or YYYY-MM or YYYY",
+          "endDate": "YYYY-MM-DD or YYYY-MM or YYYY" or null,
           "description": "Responsibilities summary",
           "achievements": [
             {
-              "description": "Specific action and result bullet",
+              "description": "Specific quantified action and result bullet",
               "skills": ["Skill1", "Skill2"]
             }
           ]
@@ -306,47 +347,21 @@ export async function parseAndSeedProfile(userId: string, fileBuffer: Buffer, mi
         { "role": "opening|body|closing", "theme": "technical", "content": "Professional bio snippet formulated in user's style" }
       ]
     }
+
+    Notes:
+    - Extract ALL work history entries found in the CV text.
+    - Extract ALL technical skills, tools, and frameworks mentioned.
+    - Formulate at least 1 opening voice snippet summarize candidate bio style.
     
     CV TEXT:
     ${cvText}`;
 
     parsedProfile = await aiService.generateStructuredOutput<ParsedCVProfile>(prompt);
   } catch (err: any) {
-    console.warn(`⚠️ Central AI parsing failed (${err?.message || err}). Using fallback mock profile...`);
-    parsedProfile = {
-      experiences: [
-        {
-          title: 'Software Engineer',
-          company: 'Iransé Inc.',
-          location: 'Lagos, Nigeria',
-          startDate: '2024-01-01',
-          endDate: '2025-06-30',
-          description: 'Responsible for core backend services and systems architecture.',
-          achievements: [
-            {
-              description: 'Improved database loading speeds by 40% using pgvector cosine indexes.',
-              skills: ['PostgreSQL', 'pgvector', 'Systems Architecture'],
-            },
-            {
-              description: 'Built a sliding window Redis rate limiter handling 100k requests/min.',
-              skills: ['Redis', 'Node.js', 'TypeScript'],
-            },
-          ],
-        },
-      ],
-      skills: [
-        { name: 'TypeScript', category: 'languages' },
-        { name: 'Node.js', category: 'frameworks' },
-        { name: 'PostgreSQL', category: 'databases' },
-        { name: 'Redis', category: 'databases' },
-      ],
-      voiceSnippets: [
-        {
-          role: 'opening',
-          theme: 'technical',
-          content: 'I am a backend systems developer with deep expertise in caching, databases, and architectural scaling.',
-        },
-      ],
+    console.warn(`⚠️ Central AI parsing failed (${err?.message || err}).`);
+    throw {
+      status: 500,
+      message: `Failed to parse CV content via AI orchestrator: ${err?.message || 'Invalid structured output'}`,
     };
   }
 

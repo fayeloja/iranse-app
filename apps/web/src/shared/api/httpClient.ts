@@ -20,6 +20,7 @@ export async function rotateToken(): Promise<string | null> {
     try {
       const res = await fetch('/api/v1/identity/refresh', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) {
@@ -48,8 +49,12 @@ export async function rotateToken(): Promise<string | null> {
 export async function httpClient(path: string, options: RequestInit = {}): Promise<any> {
   const headers = new Headers(options.headers || {});
   
-  // Set json content type by default if sending body
-  if (options.body && !headers.has('Content-Type') && !(options.body instanceof Buffer || options.body instanceof Blob)) {
+  // Set json content type by default if sending body (excluding Blob/File/FormData)
+  const isBinaryOrForm =
+    (typeof Blob !== 'undefined' && options.body instanceof Blob) ||
+    (typeof FormData !== 'undefined' && options.body instanceof FormData);
+
+  if (options.body && !headers.has('Content-Type') && !isBinaryOrForm) {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -58,7 +63,13 @@ export async function httpClient(path: string, options: RequestInit = {}): Promi
     headers.set('Authorization', `Bearer ${accessTokenMemory}`);
   }
 
-  const response = await fetch(path, { ...options, headers });
+  const fetchOptions: RequestInit = {
+    credentials: 'include',
+    ...options,
+    headers,
+  };
+
+  const response = await fetch(path, fetchOptions);
 
   // Handle Token Expirations Interceptor (gated against login/refresh infinite loops)
   if (
@@ -70,7 +81,7 @@ export async function httpClient(path: string, options: RequestInit = {}): Promi
     const rotatedToken = await rotateToken();
     if (rotatedToken) {
       headers.set('Authorization', `Bearer ${rotatedToken}`);
-      const retryResponse = await fetch(path, { ...options, headers });
+      const retryResponse = await fetch(path, { ...fetchOptions, headers });
       if (retryResponse.ok) {
         return retryResponse.json();
       }

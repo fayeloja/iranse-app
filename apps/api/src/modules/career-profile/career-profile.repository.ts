@@ -235,6 +235,18 @@ export async function getAchievementSkills(achievementId: string): Promise<Skill
   return result.rows;
 }
 
+export async function getUserSkills(userId: string): Promise<SkillRow[]> {
+  const sql = `
+    SELECT DISTINCT s.* FROM skills s
+    JOIN achievement_skills ash ON s.id = ash.skill_id
+    JOIN achievements a ON ash.achievement_id = a.id
+    WHERE a.user_id = $1
+    ORDER BY s.category ASC, s.name ASC;
+  `;
+  const result = await query<SkillRow>(sql, [userId]);
+  return result.rows;
+}
+
 // ==========================================
 // RESUME VARIANTS
 // ==========================================

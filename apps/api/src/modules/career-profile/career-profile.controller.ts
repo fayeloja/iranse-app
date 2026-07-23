@@ -115,6 +115,16 @@ export async function deleteAchievement(req: Request, res: Response, next: NextF
   }
 }
 
+export async function getSkills(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.id;
+    const skills = await service.getSkillsList(userId);
+    res.status(200).json({ status: 'success', data: { skills } });
+  } catch (error) {
+    next(error);
+  }
+}
+
 // ==========================================
 // RESUME VARIANTS
 // ==========================================

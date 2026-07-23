@@ -4,7 +4,8 @@ import httpClient from '../../../shared/api/httpClient.js';
 import Card from '../../../shared/ui/Card.jsx';
 import Button from '../../../shared/ui/Button.jsx';
 import Badge from '../../../shared/ui/Badge.jsx';
-import { User, Briefcase, Plus, Mic, Trash2, Upload, FileText, AlertCircle, RefreshCw } from 'lucide-react';
+import ProgressBar from '../../../shared/ui/ProgressBar.jsx';
+import { User, Briefcase, Plus, Mic, Trash2, Upload, FileText, AlertCircle, RefreshCw, Pencil, Wrench, CheckCircle } from 'lucide-react';
 
 interface Experience {
   id: string;
@@ -20,6 +21,13 @@ interface Achievement {
   id: string;
   experience_id: string;
   description: string;
+  skills?: string[];
+}
+
+interface Skill {
+  id: string;
+  name: string;
+  category: string;
 }
 
 interface VoiceSnippet {
@@ -32,10 +40,13 @@ interface VoiceSnippet {
 export const CareerProfileScreen: React.FC = () => {
   const queryClient = useQueryClient();
 
-  // Toggles for forms
+  // Toggles for forms & edit states
   const [showExpForm, setShowExpForm] = useState(false);
   const [showAchForm, setShowAchForm] = useState(false);
   const [showVoiceForm, setShowVoiceForm] = useState(false);
+
+  const [editingExpId, setEditingExpId] = useState<string | null>(null);
+  const [editingAchId, setEditingAchId] = useState<string | null>(null);
 
   // Experience form state
   const [expTitle, setExpTitle] = useState('');
@@ -77,6 +88,14 @@ export const CareerProfileScreen: React.FC = () => {
     },
   });
 
+  const { data: skills = [], isLoading: loadingSkills } = useQuery<Skill[]>({
+    queryKey: ['skills'],
+    queryFn: async () => {
+      const res = await httpClient('/api/v1/career-profile/skill');
+      return res.data.skills;
+    },
+  });
+
   const { data: voiceSnippets = [], isLoading: loadingVoice } = useQuery<VoiceSnippet[]>({
     queryKey: ['voice-snippets'],
     queryFn: async () => {
@@ -113,6 +132,55 @@ export const CareerProfileScreen: React.FC = () => {
     },
   });
 
+  const updateExpMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await httpClient(`/api/v1/career-profile/experience/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          title: expTitle,
+          company: expCompany,
+          location: expLocation,
+          startDate: expStartDate,
+          endDate: expIsCurrent ? null : expEndDate,
+          description: expDesc || undefined,
+        }),
+      });
+    },
+    onSuccess: () => {
+      setEditingExpId(null);
+      setExpTitle('');
+      setExpCompany('');
+      setExpLocation('');
+      setExpStartDate('');
+      setExpEndDate('');
+      setExpIsCurrent(false);
+      setExpDesc('');
+      setShowExpForm(false);
+      queryClient.invalidateQueries({ queryKey: ['experiences'] });
+    },
+  });
+
+  const updateAchMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await httpClient(`/api/v1/career-profile/achievement/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          description: achDesc,
+          skills: achSkills.split(',').map(s => s.trim()).filter(Boolean),
+        }),
+      });
+    },
+    onSuccess: () => {
+      setEditingAchId(null);
+      setAchExpId('');
+      setAchDesc('');
+      setAchSkills('');
+      setShowAchForm(false);
+      queryClient.invalidateQueries({ queryKey: ['achievements'] });
+      queryClient.invalidateQueries({ queryKey: ['skills'] });
+    },
+  });
+
   const createAchMutation = useMutation({
     mutationFn: async () => {
       await httpClient('/api/v1/career-profile/achievement', {
@@ -130,6 +198,7 @@ export const CareerProfileScreen: React.FC = () => {
       setAchSkills('');
       setShowAchForm(false);
       queryClient.invalidateQueries({ queryKey: ['achievements'] });
+      queryClient.invalidateQueries({ queryKey: ['skills'] });
     },
   });
 
@@ -204,12 +273,40 @@ export const CareerProfileScreen: React.FC = () => {
         setUploadProgress(null);
         queryClient.invalidateQueries({ queryKey: ['experiences'] });
         queryClient.invalidateQueries({ queryKey: ['achievements'] });
+        queryClient.invalidateQueries({ queryKey: ['voice-snippets'] });
       }, 1500);
     } catch (err: any) {
       console.error(err);
       setCvError(err.error?.message || 'Failed to parse CV PDF document.');
       setUploadProgress(null);
     }
+  };
+
+  // Calculate Profile Completeness %
+  const expScore = experiences.length > 0 ? 30 : 0;
+  const achScore = achievements.length >= 2 ? 30 : achievements.length > 0 ? 15 : 0;
+  const skillScore = skills.length > 0 ? 20 : 0;
+  const voiceScore = voiceSnippets.length > 0 ? 20 : 0;
+  const profileCompleteness = expScore + achScore + skillScore + voiceScore;
+
+  const handleEditExperience = (exp: Experience) => {
+    setEditingExpId(exp.id);
+    setExpTitle(exp.title);
+    setExpCompany(exp.company);
+    setExpLocation(exp.location);
+    setExpStartDate(exp.start_date);
+    setExpEndDate(exp.end_date || '');
+    setExpIsCurrent(!exp.end_date);
+    setExpDesc(exp.description || '');
+    setShowExpForm(true);
+  };
+
+  const handleEditAchievement = (ach: Achievement) => {
+    setEditingAchId(ach.id);
+    setAchExpId(ach.experience_id);
+    setAchDesc(ach.description);
+    setAchSkills((ach.skills || []).join(', '));
+    setShowAchForm(true);
   };
 
   return (
@@ -230,13 +327,32 @@ export const CareerProfileScreen: React.FC = () => {
         >
           <User size={24} style={{ color: 'hsl(var(--color-secondary))' }} />
         </div>
-        <div>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 800 }}>Career Profile</h2>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 800 }}>Career Knowledge Base</h2>
           <p style={{ color: 'hsl(var(--color-text-secondary))', fontSize: '0.8rem' }}>
-            Extracted from CV & tailored for automated applications
+            Structured experiences, skills taxonomy & verbatim voice snippets
           </p>
         </div>
       </div>
+
+      {/* Profile Completeness Readiness Card */}
+      <Card variant="glass">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <CheckCircle size={18} style={{ color: profileCompleteness >= 80 ? 'rgb(52, 211, 153)' : 'hsl(var(--color-primary))' }} />
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 700 }}>Matching Readiness</h3>
+          </div>
+          <Badge variant={profileCompleteness >= 80 ? 'success' : 'warning'}>
+            {profileCompleteness}% Complete
+          </Badge>
+        </div>
+        <ProgressBar value={profileCompleteness} height="6px" />
+        <p style={{ fontSize: '0.75rem', color: 'hsl(var(--color-text-muted))', marginTop: '0.5rem' }}>
+          {profileCompleteness >= 80
+            ? 'Your profile is fully configured for high-confidence job matching & resume assembly.'
+            : 'Add work experiences, achievements, and skills to reach optimal matching score precision.'}
+        </p>
+      </Card>
 
       {/* CV Upload Section */}
       <Card variant="glow" style={{ padding: '1.5rem' }}>
@@ -249,7 +365,7 @@ export const CareerProfileScreen: React.FC = () => {
           seeding your profile matching configurations.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <label style={{ display: 'inline-flex', alignSelf: 'flex-start' }}>
+          <label style={{ display: 'inline-flex', alignSelf: 'flex-start', width: '100%' }}>
             <input
               type="file"
               accept=".pdf,.txt,.doc,.docx"
@@ -258,11 +374,14 @@ export const CareerProfileScreen: React.FC = () => {
             />
             <span
               style={{
-                display: 'inline-flex',
+                display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'center',
                 gap: '0.5rem',
-                background: 'rgba(255,255,255,0.06)',
-                border: '1px solid rgba(255,255,255,0.1)',
+                width: '100%',
+                minHeight: '46px',
+                background: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%)',
+                border: '1px solid rgba(255,255,255,0.12)',
                 padding: '0.75rem 1.25rem',
                 borderRadius: '0.75rem',
                 fontSize: '0.875rem',
@@ -272,7 +391,7 @@ export const CareerProfileScreen: React.FC = () => {
               }}
               className="interactive"
             >
-              <Upload size={16} /> Choose CV Document
+              <Upload size={18} /> Choose CV Document (PDF / Text)
             </span>
           </label>
           
@@ -297,14 +416,15 @@ export const CareerProfileScreen: React.FC = () => {
           <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Briefcase size={16} style={{ color: 'hsl(var(--color-primary))' }} /> Work Experience
           </h3>
-          <Button variant="ghost" size="sm" onClick={() => setShowExpForm(!showExpForm)} style={{ padding: '0.25rem' }}>
+          <Button variant="ghost" size="sm" onClick={() => { setEditingExpId(null); setShowExpForm(!showExpForm); }} style={{ padding: '0.25rem' }}>
             <Plus size={16} />
           </Button>
         </div>
 
-        {/* Experience Add Form */}
+        {/* Experience Add/Edit Form */}
         {showExpForm && (
           <Card variant="simple" style={{ marginBottom: '1.25rem', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+            <h4 style={{ fontSize: '0.875rem', fontWeight: 700 }}>{editingExpId ? 'Edit Work Role' : 'Add New Work Role'}</h4>
             <div className="input-group">
               <label className="input-label">Job Title</label>
               <input type="text" value={expTitle} onChange={e => setExpTitle(e.target.value)} placeholder="e.g. Senior Frontend Engineer" className="input-field" />
@@ -336,8 +456,15 @@ export const CareerProfileScreen: React.FC = () => {
               <textarea value={expDesc} onChange={e => setExpDesc(e.target.value)} placeholder="Describe core roles and responsibilities" className="input-field" style={{ minHeight: '80px', resize: 'vertical' }} />
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <Button variant="secondary" size="sm" onClick={() => setShowExpForm(false)}>Cancel</Button>
-              <Button variant="primary" size="sm" onClick={() => createExpMutation.mutate()} isLoading={createExpMutation.isPending}>Add Role</Button>
+              <Button variant="secondary" size="sm" onClick={() => { setShowExpForm(false); setEditingExpId(null); }}>Cancel</Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => editingExpId ? updateExpMutation.mutate(editingExpId) : createExpMutation.mutate()}
+                isLoading={createExpMutation.isPending || updateExpMutation.isPending}
+              >
+                {editingExpId ? 'Save Changes' : 'Add Role'}
+              </Button>
             </div>
           </Card>
         )}
@@ -354,14 +481,29 @@ export const CareerProfileScreen: React.FC = () => {
                   <div style={{ fontSize: '0.75rem', color: 'hsl(var(--color-text-muted))', marginTop: '0.25rem' }}>
                     {exp.start_date} to {exp.end_date || 'Present'}
                   </div>
+                  {exp.description && (
+                    <p style={{ fontSize: '0.8rem', color: 'hsl(var(--color-text-secondary))', marginTop: '0.4rem', lineHeight: 1.35 }}>
+                      {exp.description}
+                    </p>
+                  )}
                 </div>
-                <button
-                  onClick={() => deleteExpMutation.mutate(exp.id)}
-                  disabled={deleteExpMutation.isPending}
-                  style={{ background: 'none', border: 'none', color: 'hsl(var(--color-text-muted))', cursor: 'pointer', padding: '0.25rem' }}
-                >
-                  <Trash2 size={16} style={{ color: 'rgb(248, 113, 113)' }} />
-                </button>
+                <div style={{ display: 'flex', gap: '0.35rem' }}>
+                  <button
+                    onClick={() => handleEditExperience(exp)}
+                    style={{ background: 'none', border: 'none', color: 'hsl(var(--color-text-muted))', cursor: 'pointer', padding: '0.25rem' }}
+                    title="Edit Role"
+                  >
+                    <Pencil size={15} style={{ color: 'hsl(var(--color-secondary))' }} />
+                  </button>
+                  <button
+                    onClick={() => deleteExpMutation.mutate(exp.id)}
+                    disabled={deleteExpMutation.isPending}
+                    style={{ background: 'none', border: 'none', color: 'hsl(var(--color-text-muted))', cursor: 'pointer', padding: '0.25rem' }}
+                    title="Delete Role"
+                  >
+                    <Trash2 size={15} style={{ color: 'rgb(248, 113, 113)' }} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -370,32 +512,58 @@ export const CareerProfileScreen: React.FC = () => {
         )}
       </Card>
 
+      {/* Skills Taxonomy Section */}
+      <Card variant="glass">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+          <Wrench size={16} style={{ color: 'hsl(var(--color-secondary))' }} />
+          <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Skills & Technologies Taxonomy</h3>
+        </div>
+        {loadingSkills ? (
+          <div style={{ fontSize: '0.8rem', color: 'hsl(var(--color-text-secondary))' }}>Loading skills taxonomy...</div>
+        ) : skills.length > 0 ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {skills.map(s => (
+              <Badge key={s.id} variant="neutral">
+                {s.name} <span style={{ opacity: 0.6, fontSize: '0.65rem', marginLeft: '0.25rem' }}>({s.category})</span>
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: '0.8rem', color: 'hsl(var(--color-text-secondary))' }}>
+            No skills cataloged yet. Skills are automatically populated when adding achievements or uploading a CV.
+          </div>
+        )}
+      </Card>
+
       {/* Profile Achievements (MMR Targets) */}
       <Card variant="glass">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Achievements & Skills</h3>
-          <Button variant="ghost" size="sm" onClick={() => setShowAchForm(!showAchForm)} style={{ padding: '0.25rem' }}>
+          <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Achievements & Skill Links</h3>
+          <Button variant="ghost" size="sm" onClick={() => { setEditingAchId(null); setShowAchForm(!showAchForm); }} style={{ padding: '0.25rem' }}>
             <Plus size={16} />
           </Button>
         </div>
 
-        {/* Add Achievement Form */}
+        {/* Add/Edit Achievement Form */}
         {showAchForm && (
           <Card variant="simple" style={{ marginBottom: '1.25rem', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-            <div className="input-group">
-              <label className="input-label">Select Associated Experience</label>
-              <select
-                value={achExpId}
-                onChange={e => setAchExpId(e.target.value)}
-                className="input-field"
-                style={{ background: 'rgba(15, 23, 42, 0.6)' }}
-              >
-                <option value="">-- Choose Role --</option>
-                {experiences.map(e => (
-                  <option key={e.id} value={e.id} style={{ background: '#0f172a' }}>{e.title} at {e.company}</option>
-                ))}
-              </select>
-            </div>
+            <h4 style={{ fontSize: '0.875rem', fontWeight: 700 }}>{editingAchId ? 'Edit Achievement' : 'Add New Achievement'}</h4>
+            {!editingAchId && (
+              <div className="input-group">
+                <label className="input-label">Select Associated Experience</label>
+                <select
+                  value={achExpId}
+                  onChange={e => setAchExpId(e.target.value)}
+                  className="input-field"
+                  style={{ background: 'rgba(15, 23, 42, 0.6)' }}
+                >
+                  <option value="">-- Choose Role --</option>
+                  {experiences.map(e => (
+                    <option key={e.id} value={e.id} style={{ background: '#0f172a' }}>{e.title} at {e.company}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="input-group">
               <label className="input-label">Description (What you achieved)</label>
               <textarea value={achDesc} onChange={e => setAchDesc(e.target.value)} placeholder="e.g. Developed and deployed key backend modules reducing processing lag by 30%." className="input-field" style={{ minHeight: '80px', resize: 'vertical' }} />
@@ -405,8 +573,15 @@ export const CareerProfileScreen: React.FC = () => {
               <input type="text" value={achSkills} onChange={e => setAchSkills(e.target.value)} placeholder="Node.js, Redis, PostgreSQL" className="input-field" />
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <Button variant="secondary" size="sm" onClick={() => setShowAchForm(false)}>Cancel</Button>
-              <Button variant="primary" size="sm" onClick={() => createAchMutation.mutate()} isLoading={createAchMutation.isPending}>Add Achievement</Button>
+              <Button variant="secondary" size="sm" onClick={() => { setShowAchForm(false); setEditingAchId(null); }}>Cancel</Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => editingAchId ? updateAchMutation.mutate(editingAchId) : createAchMutation.mutate()}
+                isLoading={createAchMutation.isPending || updateAchMutation.isPending}
+              >
+                {editingAchId ? 'Save Changes' : 'Add Achievement'}
+              </Button>
             </div>
           </Card>
         )}
@@ -420,21 +595,38 @@ export const CareerProfileScreen: React.FC = () => {
               
               return (
                 <div key={ach.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '0.875rem' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.875rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.875rem', flex: 1 }}>
                     <p style={{ lineHeight: 1.4 }}>{ach.description}</p>
+                    {ach.skills && ach.skills.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.25rem' }}>
+                        {ach.skills.map((sk, idx) => (
+                          <Badge key={idx} variant="info">{sk}</Badge>
+                        ))}
+                      </div>
+                    )}
                     {assocExp && (
-                      <span style={{ fontSize: '0.75rem', color: 'hsl(var(--color-text-muted))' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'hsl(var(--color-text-muted))', marginTop: '0.15rem' }}>
                         Ref: {assocExp.title} at {assocExp.company}
                       </span>
                     )}
                   </div>
-                  <button
-                    onClick={() => deleteAchMutation.mutate(ach.id)}
-                    disabled={deleteAchMutation.isPending}
-                    style={{ background: 'none', border: 'none', color: 'hsl(var(--color-text-muted))', cursor: 'pointer', padding: '0.25rem', marginLeft: '0.5rem' }}
-                  >
-                    <Trash2 size={16} style={{ color: 'rgb(248, 113, 113)' }} />
-                  </button>
+                  <div style={{ display: 'flex', gap: '0.35rem', marginLeft: '0.5rem' }}>
+                    <button
+                      onClick={() => handleEditAchievement(ach)}
+                      style={{ background: 'none', border: 'none', color: 'hsl(var(--color-text-muted))', cursor: 'pointer', padding: '0.25rem' }}
+                      title="Edit Achievement"
+                    >
+                      <Pencil size={15} style={{ color: 'hsl(var(--color-secondary))' }} />
+                    </button>
+                    <button
+                      onClick={() => deleteAchMutation.mutate(ach.id)}
+                      disabled={deleteAchMutation.isPending}
+                      style={{ background: 'none', border: 'none', color: 'hsl(var(--color-text-muted))', cursor: 'pointer', padding: '0.25rem' }}
+                      title="Delete Achievement"
+                    >
+                      <Trash2 size={15} style={{ color: 'rgb(248, 113, 113)' }} />
+                    </button>
+                  </div>
                 </div>
               );
             })}
