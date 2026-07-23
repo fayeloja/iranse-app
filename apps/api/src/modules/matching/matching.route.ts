@@ -8,6 +8,14 @@ const router = Router();
 // MATCHING ENDPOINTS
 // ==========================================
 
+// Retrieve user's daily digest
+router.get(
+  '/digest',
+  authenticate,
+  requirePermissions(['profile:read']),
+  controller.getDigest
+);
+
 // Retrieve job matches for the authenticated user
 router.get(
   '/',

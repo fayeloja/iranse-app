@@ -1,6 +1,7 @@
 import { getEmbedding } from '../../infra/embeddings/similarity.js';
 import * as repository from './career-profile.repository.js';
 import { transaction } from '../../infra/database/client.js';
+import { aiService } from '../../services/index.js';
 
 // ==========================================
 // EXPERIENCES
@@ -277,11 +278,41 @@ export async function parseAndSeedProfile(userId: string, fileBuffer: Buffer, mi
     Skills: TypeScript, PostgreSQL, Redis, Node.js, Systems Architecture.`;
   }
 
-  const geminiKey = process.env.GEMINI_API_KEY;
   let parsedProfile: ParsedCVProfile;
 
-  if (!geminiKey) {
-    // Return mock structured profile if Gemini API is missing (local dev offline testing)
+  try {
+    const prompt = `Analyze this CV text and return a JSON matching this structure:
+    {
+      "experiences": [
+        {
+          "title": "Job Title",
+          "company": "Company Name",
+          "location": "Location",
+          "startDate": "YYYY-MM-DD",
+          "endDate": "YYYY-MM-DD" or null,
+          "description": "Responsibilities summary",
+          "achievements": [
+            {
+              "description": "Specific action and result bullet",
+              "skills": ["Skill1", "Skill2"]
+            }
+          ]
+        }
+      ],
+      "skills": [
+        { "name": "SkillName", "category": "languages|databases|frameworks|tools|general" }
+      ],
+      "voiceSnippets": [
+        { "role": "opening|body|closing", "theme": "technical", "content": "Professional bio snippet formulated in user's style" }
+      ]
+    }
+    
+    CV TEXT:
+    ${cvText}`;
+
+    parsedProfile = await aiService.generateStructuredOutput<ParsedCVProfile>(prompt);
+  } catch (err: any) {
+    console.warn(`⚠️ Central AI parsing failed (${err?.message || err}). Using fallback mock profile...`);
     parsedProfile = {
       experiences: [
         {
@@ -317,56 +348,6 @@ export async function parseAndSeedProfile(userId: string, fileBuffer: Buffer, mi
         },
       ],
     };
-  } else {
-    // Execute structured LLM extraction from CV text
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
-    const prompt = `Analyze this CV text and return a JSON matching this structure:
-    {
-      "experiences": [
-        {
-          "title": "Job Title",
-          "company": "Company Name",
-          "location": "Location",
-          "startDate": "YYYY-MM-DD",
-          "endDate": "YYYY-MM-DD" or null,
-          "description": "Responsibilities summary",
-          "achievements": [
-            {
-              "description": "Specific action and result bullet",
-              "skills": ["Skill1", "Skill2"]
-            }
-          ]
-        }
-      ],
-      "skills": [
-        { "name": "SkillName", "category": "languages|databases|frameworks|tools|general" }
-      ],
-      "voiceSnippets": [
-        { "role": "opening|body|closing", "theme": "technical", "content": "Professional bio snippet formulated in user's style" }
-      ]
-    }
-    
-    CV TEXT:
-    ${cvText}`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Gemini parser service failed: ${response.statusText}`);
-    }
-
-    const resBody = (await response.json()) as any;
-    const textResult = resBody.candidates[0].content.parts[0].text;
-    parsedProfile = JSON.parse(textResult) as ParsedCVProfile;
   }
 
   // Database insertion within a single SQL transaction

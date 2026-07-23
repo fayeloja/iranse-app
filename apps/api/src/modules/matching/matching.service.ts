@@ -10,6 +10,8 @@ import { DimensionScorer } from './dimensions/scorer.interface.js';
 import * as repository from './matching.repository.js';
 import { getExperiences, getAchievements } from '../career-profile/career-profile.repository.js';
 import { getJobById } from '../job-discovery/job-discovery.repository.js';
+import { getUserApplications } from '../applications/applications.repository.js';
+import { getUserMonthlyApplicationStatus } from '../applications/applications.service.js';
 
 // Weight configuration for overall score calculation (sum equals 1.0)
 const WEIGHTS = {
@@ -120,4 +122,53 @@ export async function getUserMatches(userId: string, minScore: number = 0, limit
     createdAt: match.created_at,
     updatedAt: match.updated_at,
   }));
+}
+
+export async function getUserDigest(userId: string) {
+  const sinceDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  
+  const newMatches = await repository.getNewMatchesSince(userId, sinceDate, 5);
+  const matchSummary = await repository.getMatchesSummary(userId, sinceDate);
+  
+  const applications = await getUserApplications(userId, 1000, 0);
+  
+  const needsAttention = applications.filter(app => app.status === 'Failed');
+  const recentlySubmitted = applications.filter(app => 
+    app.status === 'Submitted' && 
+    app.submitted_at && 
+    new Date(app.submitted_at) >= sinceDate
+  );
+  
+  const quota = await getUserMonthlyApplicationStatus(userId);
+  
+  return {
+    date: new Date().toISOString(),
+    newMatches: {
+      count: matchSummary.count,
+      topMatches: newMatches.map(m => ({
+        jobId: m.job_id,
+        title: m.title,
+        company: m.company,
+        location: m.location,
+        overallScore: m.overall_score
+      }))
+    },
+    applications: {
+      sent: applications.filter(a => a.status === 'Submitted').length,
+      needsAttention: needsAttention.map(a => ({
+        id: a.id,
+        title: a.title,
+        company: a.company,
+        status: a.status,
+        errorLog: a.error_log
+      })),
+      recentlySubmitted: recentlySubmitted.map(a => ({
+        id: a.id,
+        title: a.title,
+        company: a.company,
+        submittedAt: a.submitted_at
+      }))
+    },
+    freeApplicationsLeft: quota.remaining
+  };
 }

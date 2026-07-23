@@ -6,6 +6,7 @@ import CareerProfileScreen from '../../pages/career-profile/ui/CareerProfileScre
 import ApplicationsScreen from '../../pages/applications/ui/ApplicationsScreen.jsx';
 import PreferencesScreen from '../../pages/preferences/ui/PreferencesScreen.jsx';
 import LoginScreen from '../../pages/login/ui/LoginScreen.jsx';
+import DigestScreen from '../../pages/digest/ui/DigestScreen.jsx';
 import AppProviders from '../providers/AppProviders.jsx';
 
 import { getAccessToken, rotateToken } from '../../shared/api/httpClient.js';
@@ -110,6 +111,10 @@ export const router = createBrowserRouter([
       {
         path: '/applications',
         element: <ApplicationsScreen />,
+      },
+      {
+        path: '/digest',
+        element: <DigestScreen />,
       },
       {
         path: '/preferences',

@@ -37,3 +37,13 @@ export async function getApplications(req: Request, res: Response, next: NextFun
     next(error);
   }
 }
+
+export async function getApplicationQuota(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.id;
+    const result = await service.getUserMonthlyApplicationStatus(userId);
+    res.status(200).json({ status: 'success', data: result });
+  } catch (error) {
+    next(error);
+  }
+}

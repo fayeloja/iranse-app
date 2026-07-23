@@ -83,3 +83,27 @@ Architecture Decision Records, numbered. Append new decisions; do not edit or de
 10. *Career Profile Versioning*: Saving snapshot JSON profiles with each application to preserve history.
 **Consequence:** The `identity` module is structured into sub-folders matching these layers. Requires migration tables for consents, sessions, credentials, snapshots, and audit logs. Adds cryptographic encryption utility in `infra/encryption`.
 
+### 15. Free-tier application cap applies to all user-approved applications, not only auto-submitted
+**Context:** Open question #9 asked whether the proposed 5-applications/month free-tier limit applies to every approved application or only auto-submitted ones. Auto-submit doesn't exist yet (Phase 3), so a cap scoped only to auto-submit would be effectively no cap at MVP.
+**Decision:** The cap applies to all applications the user approves in a given calendar month, regardless of submission method.
+**Consequence:** Simpler to enforce (one counter per user per month). Fairer mental model for users. Premium upgrade unlocks a higher (but still rate-limit-bound) ceiling. Supersedes the open status of #9.
+
+### 16. Daily digest is an in-app surface at MVP; email deferred to Phase 2
+**Context:** Open question from STATE.md asked whether the daily digest is primarily email, in-app, or both. Email requires transactional email infrastructure (Resend/SendGrid/Postmark) and template management that isn't justified before real users exist.
+**Decision:** MVP ships with an in-app digest surface only (new matches, application status changes, failed applications). Email digest is a Phase 2 deliverable alongside the broader email notification system.
+**Consequence:** No email infrastructure needed at MVP. The digest endpoint returns structured data; the email renderer is layered on later without changing the data source.
+
+### 17. Onboarding enforces a soft nudge, not a hard block, for minimum career content
+**Context:** Open question from STATE.md asked whether users with too few achievements or voice snippets should be soft-nudged or hard-blocked from completing onboarding.
+**Decision:** Soft nudge. Users can complete onboarding with any amount of content. The UI shows clear warnings ("Your profile is thin — matches may be less accurate") and a profile completeness indicator, but never prevents progression.
+**Consequence:** Lower friction at onboarding. Accepts the tradeoff that early matches for low-content profiles will be less useful, relying on the profile completeness indicator to motivate users to add more content over time.
+
+### 18. No job browsing/search UI at MVP — match review is the sole job discovery surface
+**Context:** The gap analysis identified that users can only see jobs that have been matched to them — there's no `/jobs` screen to browse or search the raw job store. The question was whether to build one for MVP.
+**Decision:** Deliberately skip it. The match review queue is the only job discovery surface at MVP.
+**Rationale:**
+1. *Cuts against the core principle.* Iransé's pitch is that the user doesn't manually browse and evaluate listings — the agent does the discovery and scoring, and the user reviews curated matches. A browse-and-filter screen reintroduces the manual-search behavior the product exists to eliminate.
+2. *Doesn't serve either persona at MVP.* A free-tier user has a 5-application cap and a match feed already filtered to their threshold — an unfiltered listing mostly surfaces jobs they can't act on. A premium user might want it eventually, but that's a stronger case after the core match-and-approve loop is validated with real users.
+3. *Non-trivial hidden scope.* Implies a public paginated/filterable endpoint over the raw job store (`GET /api/v1/job-discovery/`), which currently only has admin/debug routes. That means query performance work, filter validation, and pagination design that doesn't exist anywhere in the current architecture.
+4. *Original UI concepts confirm the intent.* All 6 concept mockups use a bottom nav of Home · Matches · Applications · Profile — no "Jobs" tab. The match review deck was always the designed discovery surface.
+**Consequence:** No `/jobs` route, no `JobBrowseScreen`, no public job-discovery endpoint. Revisit in Phase 2/3 once there's real signal on whether users want to browse beyond their matches, rather than guessing now. If added later, it should be framed as a power-user/exploration feature, not the primary discovery path.

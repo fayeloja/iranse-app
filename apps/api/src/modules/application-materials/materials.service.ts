@@ -78,9 +78,70 @@ export function selectAchievementsMMR(
 }
 
 /**
- * Materials tailoring service:
- * Matches jobs details to user achievements (via MMR) and voice snippets to draft
- * tailored resume structures and custom cover letters (PRD 6.4).
+ * Select the best voice snippet for a given structural role (opening/body/closing)
+ * by matching the snippet's theme to the job description context.
+ *
+ * Selection strategy:
+ * 1. Prefer snippets whose theme keyword appears in the job description.
+ * 2. If no theme match, use embedding similarity to rank body snippets.
+ * 3. Final fallback: first available snippet for that role.
+ *
+ * This function NEVER generates text — it returns the user's own words verbatim.
+ */
+async function selectSnippetForRole(
+  snippets: Array<{ id: string; role: string; theme: string; content: string }>,
+  role: 'opening' | 'body' | 'closing',
+  jobDescLower: string,
+  jobVector?: number[]
+): Promise<string | null> {
+  const candidates = snippets.filter((s) => s.role === role);
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0].content;
+
+  // 1. Theme keyword match against job description
+  const themeMatched = candidates.find((s) => {
+    const theme = s.theme.toLowerCase();
+    return (
+      jobDescLower.includes(theme) ||
+      (theme === 'startup' && (jobDescLower.includes('agile') || jobDescLower.includes('fast-paced'))) ||
+      (theme === 'enterprise' && (jobDescLower.includes('corporate') || jobDescLower.includes('large-scale'))) ||
+      (theme === 'technical' && (jobDescLower.includes('engineering') || jobDescLower.includes('architecture')))
+    );
+  });
+  if (themeMatched) return themeMatched.content;
+
+  // 2. For body snippets, use embedding similarity if a job vector is available
+  if (role === 'body' && jobVector) {
+    try {
+      const scoredCandidates = await Promise.all(
+        candidates.map(async (s) => {
+          const snippetVector = await getEmbedding(s.content);
+          return { snippet: s, similarity: cosineSimilarity(snippetVector, jobVector) };
+        })
+      );
+      scoredCandidates.sort((a, b) => b.similarity - a.similarity);
+      return scoredCandidates[0].snippet.content;
+    } catch {
+      // If embedding fails, fall through to default
+    }
+  }
+
+  // 3. Fallback: first candidate
+  return candidates[0].content;
+}
+
+/**
+ * Materials tailoring service.
+ *
+ * PRINCIPLE: "Select, don't rewrite" (PRD §4, DECISIONS.md #3).
+ *
+ * Resume assembly: MMR-selects the user's own achievement bullets — never rewrites them.
+ * Cover letter assembly: Selects the user's own voice snippets by structural role
+ * (opening/body/closing) and concatenates them verbatim. No LLM smoothing, no
+ * generated transitions, no template prose. Visible seams between selected snippets
+ * are the accepted tradeoff for authenticity.
+ *
+ * The ONLY use of embeddings here is for RANKING and RETRIEVAL, never content creation.
  */
 export async function generateTailoredMaterials(userId: string, jobId: string) {
   const job = await getJobById(jobId);
@@ -88,7 +149,9 @@ export async function generateTailoredMaterials(userId: string, jobId: string) {
     throw { status: 404, message: `Job [${jobId}] not found.` };
   }
 
-  // 1. Fetch user achievements and map pgvector string outputs
+  // ── Resume Assembly (MMR achievement selection) ──────────────────────
+
+  // 1. Fetch user achievements and parse pgvector embeddings
   const dbAchievements = await getAchievements(userId);
   const achievements = dbAchievements
     .map((ach) => ({
@@ -98,100 +161,59 @@ export async function generateTailoredMaterials(userId: string, jobId: string) {
     }))
     .filter((a) => a.embedding !== null);
 
-  // 2. Run MMR to pick the top 3 relevant yet diverse accomplishments
+  // 2. Run MMR to pick the top relevant-yet-diverse achievement bullets
   let tailoredBulletPoints = dbAchievements.slice(0, 3).map((a) => a.description);
-  
+  let jobVector: number[] | undefined;
+
   if (achievements.length > 0) {
-    const jobVector = await getEmbedding(job.description);
+    jobVector = await getEmbedding(job.description);
     const mmrSelected = selectAchievementsMMR(achievements, jobVector, 3, 0.5);
     tailoredBulletPoints = mmrSelected.map((a) => a.description);
   }
 
-  // 3. Fetch candidate's voice snippet style guides (Enterprise, Startup, Technical)
-  const snippets = await getVoiceSnippets(userId);
-  
-  // Pick voice snippet theme matching job environment keywords
+  // ── Cover Letter Assembly (voice snippet selection) ──────────────────
+  // Per PRD §4 and DECISIONS.md #3: selection ONLY, never generation.
+  // Structure: opening → body (1-2 paragraphs) → achievement reference → closing.
+  // Each section is the user's own pre-written text, concatenated verbatim.
+
+  const allSnippets = await getVoiceSnippets(userId);
   const jobDescLower = job.description.toLowerCase();
-  const matchedSnippet = snippets.find((s) => {
-    const theme = s.theme.toLowerCase();
-    return jobDescLower.includes(theme) || (theme === 'startup' && jobDescLower.includes('agile'));
-  }) || snippets[0]; // fallback to first snippet
 
-  const voiceStyleContent = matchedSnippet
-    ? matchedSnippet.content
-    : 'I am a details-oriented software engineer focused on building robust products.';
+  // Select best-matching snippet for each structural role
+  const opening = await selectSnippetForRole(allSnippets, 'opening', jobDescLower, jobVector);
+  const body = await selectSnippetForRole(allSnippets, 'body', jobDescLower, jobVector);
+  const closing = await selectSnippetForRole(allSnippets, 'closing', jobDescLower, jobVector);
 
-  // 4. Draft tailored cover letter (calls Gemini Structured API if key configured, otherwise dynamic templates)
-  const geminiKey = process.env.GEMINI_API_KEY;
-  let coverLetter = '';
+  // Assemble cover letter from selected snippets — user's own words only.
+  // If the user hasn't written snippets for a role, that section is omitted.
+  // The human-review step (DECISIONS.md #2) catches any awkward seams.
+  const coverLetterParts: string[] = [];
 
-  if (!geminiKey) {
-    // Dynamic mock template if offline/no key
-    coverLetter = `Dear Hiring Team at ${job.company},
-
-I am writing to express my strong interest in the ${job.title} position in ${job.location}.
-
-${voiceStyleContent}
-
-During my career, I have delivered key accomplishments that align with your goals:
-${tailoredBulletPoints.map((bp) => `- ${bp}`).join('\n')}
-
-I am excited to bring these experiences to ${job.company} and contribute to your team.
-
-Sincerely,
-[Candidate Name]`;
-  } else {
-    try {
-      // Call Gemini API to write a tailored cover letter matching candidate style and selected bullets
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
-      const prompt = `Write a professional cover letter for a candidate applying to this job.
-      Job Title: ${job.title}
-      Company: ${job.company}
-      Location: ${job.location}
-      Job Description: ${job.description}
-      
-      Candidate Style Guide (Write in this tone and voice):
-      "${voiceStyleContent}"
-      
-      Candidate Key Accomplishments to reference:
-      ${tailoredBulletPoints.map((bp) => `- ${bp}`).join('\n')}
-      
-      Keep the cover letter concise, clean, and engaging. Do not output anything other than the cover letter text.`;
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-        }),
-      });
-
-      if (response.ok) {
-        const resBody = (await response.json()) as any;
-        coverLetter = resBody.candidates[0].content.parts[0].text;
-      } else {
-        throw new Error(`Gemini API returned status ${response.status}`);
-      }
-    } catch (err: any) {
-      console.warn(`⚠️ Gemini API call failed for materials tailoring (${err.message}). Falling back to template.`);
-      // Dynamic mock template fallback
-      coverLetter = `Dear Hiring Team at ${job.company},
-
-I am writing to express my strong interest in the ${job.title} position in ${job.location}.
-
-${voiceStyleContent}
-
-During my career, I have delivered key accomplishments that align with your goals:
-${tailoredBulletPoints.map((bp) => `- ${bp}`).join('\n')}
-
-I am excited to bring these experiences to ${job.company} and contribute to your team.
-
-Sincerely,
-[Candidate Name]`;
-    }
+  if (opening) {
+    coverLetterParts.push(opening);
   }
 
-  // Return generated resume metadata variant link and cover letter
+  if (body) {
+    coverLetterParts.push(body);
+  }
+
+  // Insert the user's own achievement bullets as a referenced list
+  if (tailoredBulletPoints.length > 0) {
+    coverLetterParts.push(
+      tailoredBulletPoints.map((bp) => `• ${bp}`).join('\n')
+    );
+  }
+
+  if (closing) {
+    coverLetterParts.push(closing);
+  }
+
+  // Join sections with double newlines (paragraph breaks).
+  // No generated transitions, no smoothing — visible seams are the documented tradeoff.
+  const coverLetter = coverLetterParts.length > 0
+    ? coverLetterParts.join('\n\n')
+    : ''; // Empty if user has no voice snippets at all
+
   return {
     resumeUrl: `https://iranse-app.api/resumes/variants/${userId}-${jobId}`,
     coverLetter,

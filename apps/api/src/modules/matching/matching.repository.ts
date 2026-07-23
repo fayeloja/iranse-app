@@ -97,7 +97,36 @@ export async function getUserMatches(
  * Returns all active user IDs in the system to run job matches against.
  */
 export async function getAllActiveUsers(): Promise<Array<{ id: string }>> {
-  const sql = `SELECT id FROM users;`;
-  const result = await query<{ id: string }>(sql);
-  return result.rows;
-}
+    const sql = `SELECT id FROM users;`;
+    const result = await query<{ id: string }>(sql);
+    return result.rows;
+  }
+  
+  /**
+   * Retrieves the new matching list since a specific date for a candidate, joined against original jobs listings details.
+   */
+  export async function getNewMatchesSince(
+    userId: string,
+    sinceDate: Date,
+    limit: number = 5
+  ): Promise<UserMatchDetailsRow[]> {
+    const sql = `
+      SELECT jm.*, j.title, j.company, j.location, j.salary, j.experience_level, j.url
+      FROM job_matches jm
+      JOIN jobs j ON jm.job_id = j.id
+      WHERE jm.user_id = $1 AND jm.updated_at >= $2
+      ORDER BY jm.overall_score DESC, jm.updated_at DESC
+      LIMIT $3;
+    `;
+    const result = await query<UserMatchDetailsRow>(sql, [userId, sinceDate, limit]);
+    return result.rows;
+  }
+  
+  /**
+   * Returns a count of new matches since a given date.
+   */
+  export async function getMatchesSummary(userId: string, sinceDate: Date): Promise<{ count: number }> {
+    const sql = `SELECT COUNT(*) as count FROM job_matches WHERE user_id = $1 AND updated_at >= $2;`;
+    const result = await query<{ count: string }>(sql, [userId, sinceDate]);
+    return { count: parseInt(result.rows[0].count, 10) };
+  }

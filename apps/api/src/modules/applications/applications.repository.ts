@@ -91,3 +91,15 @@ export async function getUserApplications(
   const result = await query<ApplicationDetailsRow>(sql, [userId, limit, offset]);
   return result.rows;
 }
+
+export async function getMonthlyApplicationCount(userId: string): Promise<number> {
+  const sql = `
+    SELECT COUNT(*) as count 
+    FROM applications 
+    WHERE user_id = $1 
+      AND status != 'PendingApproval'
+      AND created_at >= date_trunc('month', CURRENT_DATE);
+  `;
+  const result = await query<{ count: string }>(sql, [userId]);
+  return parseInt(result.rows[0].count, 10) || 0;
+}

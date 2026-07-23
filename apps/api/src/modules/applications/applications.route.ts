@@ -36,4 +36,12 @@ router.get(
   controller.getApplications
 );
 
+// Get monthly application quota status
+router.get(
+  '/quota',
+  authenticate,
+  requirePermissions(['applications:read']),
+  controller.getApplicationQuota
+);
+
 export default router;

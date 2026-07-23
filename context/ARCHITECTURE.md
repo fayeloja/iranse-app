@@ -195,10 +195,10 @@ All services run as Docker containers alongside the app at MVP scale.
 | DB | pg_stat_statements | Slow query detection |
 
 Operational alerts (Prometheus rules — Sentry does not cover these):
-- No runner accepted a job in >10 minutes
-- Webhook processing backlog >50 items
-- Settlement job failed
-- Active runner location not updated in >2 minutes during active trip (safety signal)
+- Job ingestion queue depth >100 for >10 minutes
+- Application worker idle >10 minutes with queued items pending
+- Rate-limited applications >50% of total submissions in the last hour
+- DeadLetter count increased (any new dead-lettered application)
 - Database connection pool >80% utilised
 
 ---

@@ -24,3 +24,13 @@ export async function calculateMatch(req: Request, res: Response, next: NextFunc
     next(error);
   }
 }
+
+export async function getDigest(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user!.id;
+    const digest = await service.getUserDigest(userId);
+    res.status(200).json({ status: 'success', data: { digest } });
+  } catch (error) {
+    next(error);
+  }
+}

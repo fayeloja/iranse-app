@@ -4,6 +4,7 @@ import { getDecryptedPortalCredentials } from '../identity/identity.service.js';
 import { getJobById } from '../job-discovery/job-discovery.repository.js';
 import { checkLimit } from '../../infra/rate-limiter/compositeKeyLimiter.js';
 import { applicationsQueue } from '../../infra/queue/queues.js';
+import { env } from '../../config/env.js';
 
 /**
  * Initiates the application drafting flow: generates tailored resume variant
@@ -39,6 +40,13 @@ export async function approveAndQueueApplication(userId: string, jobId: string) 
 
   if (app.status !== 'PendingApproval') {
     throw { status: 400, message: `Cannot queue application in state: ${app.status}` };
+  }
+
+  // Check cap
+  // TODO: When billing is implemented, this check should look up the user's subscription tier
+  const status = await getUserMonthlyApplicationStatus(userId);
+  if (status.used >= status.limit) {
+    throw { status: 403, message: `Free-tier monthly application cap reached (${status.limit}/month). Upgrade to Premium for more applications.` };
   }
 
   // Update status to Queued
@@ -133,4 +141,14 @@ export async function processApplicationSubmission(applicationId: string) {
 
 export async function getUserApplicationsList(userId: string, limit: number = 20, offset: number = 0) {
   return repository.getUserApplications(userId, limit, offset);
+}
+
+export async function getUserMonthlyApplicationStatus(userId: string) {
+  const used = await repository.getMonthlyApplicationCount(userId);
+  const limit = env.FREE_TIER_MONTHLY_CAP;
+  return {
+    used,
+    limit,
+    remaining: Math.max(0, limit - used)
+  };
 }

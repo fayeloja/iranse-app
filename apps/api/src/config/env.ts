@@ -27,7 +27,13 @@ const envSchema = z.object({
   KYC_VENDOR_API_KEY: z.string().optional(),
   WORKER_QUEUES: z.string().default('all'),
   GEMINI_API_KEY: z.string().optional(),
+  GEMINI_MODEL: z.string().optional().default('gemini-3.6-flash'),
+  GEMINI_EMBEDDING_MODEL: z.string().optional().default('text-embedding-004'),
   OPENAI_API_KEY: z.string().optional(),
+  OPENAI_EMBEDDING_MODEL: z.string().optional().default('text-embedding-3-small'),
+  PAYMENT_PROVIDER: z.enum(['paystack', 'flutterwave']).optional().default('paystack'),
+  FREE_TIER_MONTHLY_CAP: z.string().transform((val) => parseInt(val, 10)).default('5'),
+  KYC_VENDOR_NAME: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
