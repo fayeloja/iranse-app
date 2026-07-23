@@ -1,9 +1,10 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import httpClient from '../../../shared/api/httpClient.js';
 import Card from '../../../shared/ui/Card.jsx';
 import Button from '../../../shared/ui/Button.jsx';
-import { Sparkles, ShieldCheck, Briefcase, BarChart3, Send, Settings } from 'lucide-react';
+import Badge from '../../../shared/ui/Badge.jsx';
+import { Sparkles, ShieldCheck, Briefcase, BarChart3, Send, Settings, RefreshCw, Radio, CheckCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import OnboardingModal from '../../onboarding/ui/OnboardingModal.jsx';
 
@@ -19,9 +20,17 @@ interface DigestData {
   freeApplicationsLeft: number;
 }
 
+interface IngestionResult {
+  newJobsCount: number;
+  adapters?: Array<{ sourceId: string; newJobs: number; status: string }>;
+  timestamp?: string;
+}
+
 export const HomeScreen: React.FC = () => {
   const navigate = useNavigate();
-  const [showOnboarding, setShowOnboarding] = React.useState(false);
+  const queryClient = useQueryClient();
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [sweepFeedback, setSweepFeedback] = useState<string | null>(null);
 
   const { data: quota } = useQuery<QuotaData>({
     queryKey: ['applicationQuota'],
@@ -37,7 +46,24 @@ export const HomeScreen: React.FC = () => {
       const res = await httpClient('/api/v1/matching/digest');
       return res.data;
     },
-    staleTime: 60_000, // Cache for 1 minute to avoid redundant calls
+    staleTime: 60_000,
+  });
+
+  const sweepMutation = useMutation({
+    mutationFn: async () => {
+      const res = await httpClient('/api/v1/job-discovery/ingest', { method: 'POST' });
+      return res.data as IngestionResult;
+    },
+    onSuccess: (data) => {
+      setSweepFeedback(`Sweep complete! Discovered ${data.newJobsCount} new job posting${data.newJobsCount !== 1 ? 's' : ''}.`);
+      queryClient.invalidateQueries({ queryKey: ['digestSummary'] });
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+      setTimeout(() => setSweepFeedback(null), 4000);
+    },
+    onError: () => {
+      setSweepFeedback('Sweep error. Please check server status.');
+      setTimeout(() => setSweepFeedback(null), 4000);
+    },
   });
 
   const matchCount = digest?.newMatches?.count ?? 0;
@@ -71,7 +97,54 @@ export const HomeScreen: React.FC = () => {
         </div>
       </Card>
 
-      {/* Stats Grid — matches concept UI mockup */}
+      {/* Job Hunting Engine Activity & Adapters Monitor Card */}
+      <Card variant="glass">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Radio size={18} style={{ color: 'rgb(52, 211, 153)', animation: 'pulse 2s infinite' }} />
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 700 }}>Job Hunting Agent Engine</h3>
+          </div>
+          <Badge variant="success">Active & Monitoring</Badge>
+        </div>
+
+        <p style={{ fontSize: '0.75rem', color: 'hsl(var(--color-text-muted))', marginBottom: '0.875rem' }}>
+          Autonomous background crawlers poll job boards & APIs, scoring postings against your career profile.
+        </p>
+
+        {/* Adapter Status Badges */}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.5rem', padding: '0.4rem 0.65rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'rgb(52, 211, 153)' }}></span>
+            <span>Greenhouse API Adapter</span>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.5rem', padding: '0.4rem 0.65rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'rgb(52, 211, 153)' }}></span>
+            <span>Jobberman Crawler Adapter</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <Button
+            variant="secondary"
+            size="md"
+            fullWidth
+            onClick={() => sweepMutation.mutate()}
+            isLoading={sweepMutation.isPending}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+          >
+            <RefreshCw size={16} className={sweepMutation.isPending ? 'spin' : ''} /> Run Instant Job Sweep
+          </Button>
+
+          {sweepFeedback && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'rgb(52, 211, 153)', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+              <CheckCircle size={14} />
+              <span>{sweepFeedback}</span>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Stats Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
         <Card variant="simple" style={{ padding: '1rem' }}>
           <div style={{ fontSize: '0.7rem', color: 'hsl(var(--color-text-secondary))', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Sent this month</div>
@@ -87,7 +160,7 @@ export const HomeScreen: React.FC = () => {
         </Card>
       </div>
 
-      {/* Quick Access Grid — matches concept UI mockup */}
+      {/* Quick Access Grid */}
       <div>
         <h3 style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--color-text-secondary))', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           Quick access

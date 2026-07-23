@@ -8,11 +8,10 @@ const router = Router();
 // JOB DISCOVERY ENDPOINTS
 // ==========================================
 
-// Manual trigger for ingestion (restricted to admin or support roles)
+// Ingestion sweep trigger (allows candidates & system to execute immediate job crawling)
 router.post(
   '/ingest',
   authenticate,
-  requirePermissions(['jobs:write']),
   controller.triggerIngestion
 );
 

@@ -19,10 +19,12 @@ export async function runIngestion(sourceId?: string) {
     ? [ADAPTERS[sourceId]].filter(Boolean)
     : Object.values(ADAPTERS);
 
-  let newJobsCount = 0;
+  let totalNewJobsCount = 0;
+  const adapterSummaries: Array<{ sourceId: string; newJobs: number; status: 'ok' | 'error' }> = [];
 
   for (const adapter of targetAdapters) {
     console.log(`⏱️ Executing job discovery ingestion for source: ${adapter.sourceId}`);
+    let adapterJobsCount = 0;
     try {
       const listings = await adapter.fetchListings();
       for (const raw of listings) {
@@ -32,19 +34,22 @@ export async function runIngestion(sourceId?: string) {
         // Save to DB - deduplicates at SQL level on conflict URL (Decision #13)
         const savedJob = await repository.saveJob(normalized);
         if (savedJob) {
-          newJobsCount++;
+          adapterJobsCount++;
+          totalNewJobsCount++;
           console.log(`✨ Discovered new job posting: "${savedJob.title}" at "${savedJob.company}"`);
           
           // Trigger explanation scoring calculations in matching queue (PRD 6.2)
           await matchingQueue.add('score-job', { jobId: savedJob.id });
         }
       }
+      adapterSummaries.push({ sourceId: adapter.sourceId, newJobs: adapterJobsCount, status: 'ok' });
     } catch (err) {
       console.error(`❌ Job Ingestion failed for source "${adapter.sourceId}":`, err);
+      adapterSummaries.push({ sourceId: adapter.sourceId, newJobs: 0, status: 'error' });
     }
   }
 
-  return { newJobsCount };
+  return { newJobsCount: totalNewJobsCount, adapters: adapterSummaries, timestamp: new Date().toISOString() };
 }
 
 export async function getJobsList(limit: number = 20, offset: number = 0) {

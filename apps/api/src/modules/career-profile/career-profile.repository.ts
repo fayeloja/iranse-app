@@ -55,6 +55,41 @@ export interface VoiceSnippetRow {
   updated_at: Date;
 }
 
+// Helper to normalize loose date strings into PostgreSQL DATE format (YYYY-MM-DD or NULL)
+export function normalizeDateForPostgres(dateStr?: string | null): string | null {
+  if (!dateStr) return null;
+  const trimmed = String(dateStr).trim();
+  if (!trimmed || /^present$/i.test(trimmed) || /^current$/i.test(trimmed) || /^now$/i.test(trimmed)) {
+    return null;
+  }
+
+  // Exact YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // YYYY-MM -> YYYY-MM-01
+  if (/^\d{4}-\d{2}$/.test(trimmed)) {
+    return `${trimmed}-01`;
+  }
+
+  // YYYY -> YYYY-01-01
+  if (/^\d{4}$/.test(trimmed)) {
+    return `${trimmed}-01-01`;
+  }
+
+  // Fallback JS Date parsing for strings like "Dec 2020"
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    const yyyy = parsed.getUTCFullYear();
+    const mm = String(parsed.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(parsed.getUTCDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  return null;
+}
+
 // ==========================================
 // EXPERIENCES CRUD
 // ==========================================
@@ -68,6 +103,9 @@ export async function createExperience(
   endDate: string | null,
   description?: string
 ): Promise<ExperienceRow> {
+  const cleanStart = normalizeDateForPostgres(startDate) || new Date().toISOString().slice(0, 10);
+  const cleanEnd = normalizeDateForPostgres(endDate);
+
   const sql = `
     INSERT INTO experiences (user_id, title, company, location, start_date, end_date, description)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -78,8 +116,8 @@ export async function createExperience(
     title,
     company,
     location,
-    startDate,
-    endDate,
+    cleanStart,
+    cleanEnd,
     description,
   ]);
   return result.rows[0];
@@ -111,6 +149,9 @@ export async function updateExperience(
   endDate: string | null,
   description?: string
 ): Promise<ExperienceRow | null> {
+  const cleanStart = normalizeDateForPostgres(startDate) || new Date().toISOString().slice(0, 10);
+  const cleanEnd = normalizeDateForPostgres(endDate);
+
   const sql = `
     UPDATE experiences
     SET title = $3, company = $4, location = $5, start_date = $6, end_date = $7, description = $8, updated_at = CURRENT_TIMESTAMP
@@ -123,8 +164,8 @@ export async function updateExperience(
     title,
     company,
     location,
-    startDate,
-    endDate,
+    cleanStart,
+    cleanEnd,
     description,
   ]);
   return result.rows[0] || null;

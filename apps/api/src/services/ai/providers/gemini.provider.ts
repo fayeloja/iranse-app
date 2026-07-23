@@ -44,12 +44,13 @@ export class GeminiProvider {
       throw new Error('GEMINI_API_KEY is not configured');
     }
 
-    const url = `${baseUrl}/models/${embeddingModel}:embedContent?key=${apiKey}`;
+    const cleanModel = (embeddingModel || 'text-embedding-004').replace(/^models\//, '');
+    const url = `${baseUrl}/models/${cleanModel}:embedContent?key=${apiKey}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: `models/${embeddingModel}`,
+        model: `models/${cleanModel}`,
         content: { parts: [{ text }] },
       }),
     });

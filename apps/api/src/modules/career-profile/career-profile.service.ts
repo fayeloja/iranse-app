@@ -2,9 +2,8 @@ import { getEmbedding } from '../../infra/embeddings/similarity.js';
 import * as repository from './career-profile.repository.js';
 import { transaction } from '../../infra/database/client.js';
 import { aiService } from '../../services/index.js';
-import * as pdfParsePkg from 'pdf-parse';
-
-const pdfParse: any = (pdfParsePkg as any).default || pdfParsePkg;
+import { PDFParse } from 'pdf-parse';
+import mammoth from 'mammoth';
 
 // ==========================================
 // EXPERIENCES
@@ -262,35 +261,34 @@ export interface ParsedCVProfile {
 }
 
 /**
- * Extracts text from PDF, UTF-8 text, or binary file buffers.
+ * Extracts text from PDF file buffers using pdf-parse v2 API.
  */
 async function extractTextFromPDFBuffer(buffer: Buffer): Promise<string> {
   try {
-    const data = await pdfParse(buffer);
-    if (data && data.text && data.text.trim().length > 0) {
-      // Strip leftover control characters and PDF streams
-      return data.text.replace(/[\x00-\x09\x0B\x0C\x0E-\x1F]/g, ' ').trim();
+    const parser = new PDFParse({ data: buffer });
+    const result = await parser.getText();
+    if (result && result.text && result.text.trim().length > 0) {
+      return result.text.replace(/[\x00-\x09\x0B\x0C\x0E-\x1F]/g, ' ').trim();
     }
   } catch (err: any) {
-    console.warn(`⚠️ pdf-parse stream extraction failed (${err?.message || err}). Trying text fallback...`);
+    console.warn(`⚠️ PDFParse stream extraction failed (${err?.message || err}).`);
   }
+  return '';
+}
 
-  // Fallback 1: UTF-8 string conversion (works for .txt, .md, .csv)
-  const utf8Str = buffer.toString('utf8');
-  if (!utf8Str.includes('\0') && utf8Str.trim().length > 30) {
-    // Strip XML/HTML tags if uploaded file was DOCX/XML
-    return utf8Str.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+/**
+ * Extracts plain text from Microsoft Word (.docx) file buffers using mammoth.
+ */
+async function extractTextFromDOCXBuffer(buffer: Buffer): Promise<string> {
+  try {
+    const result = await mammoth.extractRawText({ buffer });
+    if (result && result.value && result.value.trim().length > 0) {
+      return result.value.trim();
+    }
+  } catch (err: any) {
+    console.warn(`⚠️ mammoth DOCX extraction failed (${err?.message || err}).`);
   }
-
-  // Fallback 2: Filter printable ASCII strings from raw buffer
-  const rawStr = buffer.toString('latin1');
-  const printableRegex = /[a-zA-Z0-9.,;:()'""\s-]{4,}/g;
-  const matches = rawStr.match(printableRegex) || [];
-  const filtered = matches.filter(
-    s => !s.startsWith('/') && !s.includes('endobj') && !s.includes('stream') && !s.includes('Adobe') && !s.includes('xml')
-  );
-
-  return filtered.join(' ').replace(/\s+/g, ' ').trim();
+  return '';
 }
 
 /**
@@ -301,10 +299,29 @@ async function extractTextFromPDFBuffer(buffer: Buffer): Promise<string> {
 export async function parseAndSeedProfile(userId: string, fileBuffer: Buffer, mimeType: string) {
   let cvText = '';
 
-  if (mimeType.startsWith('text/') || mimeType.includes('json') || mimeType.includes('markdown')) {
-    cvText = fileBuffer.toString('utf8');
-  } else {
+  // Detect document type by MIME type or magic bytes
+  const isDocx =
+    mimeType.includes('wordprocessingml') ||
+    mimeType.includes('docx') ||
+    mimeType.includes('msword') ||
+    (fileBuffer.length > 4 && fileBuffer[0] === 0x50 && fileBuffer[1] === 0x4b);
+
+  const isPdf =
+    mimeType.includes('pdf') ||
+    (fileBuffer.length > 4 && fileBuffer.toString('ascii', 0, 4) === '%PDF');
+
+  if (isDocx) {
+    cvText = await extractTextFromDOCXBuffer(fileBuffer);
+  } else if (isPdf) {
     cvText = await extractTextFromPDFBuffer(fileBuffer);
+  }
+
+  // Fallback for plain text, Markdown, or unrecognized documents:
+  if (!cvText || cvText.trim().length < 20) {
+    const utf8Str = fileBuffer.toString('utf8');
+    if (!utf8Str.includes('\0') && utf8Str.trim().length > 20) {
+      cvText = utf8Str.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    }
   }
 
   console.log(`📄 Extracted ${cvText.length} chars of CV text for parsing. Preview: "${cvText.slice(0, 150)}..."`);
