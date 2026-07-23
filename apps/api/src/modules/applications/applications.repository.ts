@@ -103,3 +103,17 @@ export async function getMonthlyApplicationCount(userId: string): Promise<number
   const result = await query<{ count: string }>(sql, [userId]);
   return parseInt(result.rows[0].count, 10) || 0;
 }
+
+export async function createProfileSnapshot(
+  applicationId: string,
+  userId: string,
+  snapshotData: any
+): Promise<void> {
+  const sql = `
+    INSERT INTO profile_snapshots (application_id, user_id, snapshot_data)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (application_id) DO UPDATE
+    SET snapshot_data = EXCLUDED.snapshot_data;
+  `;
+  await query(sql, [applicationId, userId, JSON.stringify(snapshotData)]);
+}

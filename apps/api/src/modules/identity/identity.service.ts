@@ -3,7 +3,6 @@ import argon2 from 'argon2';
 import jwt from 'jsonwebtoken';
 import { env } from '../../config/env.js';
 import * as repository from './identity.repository.js';
-import { encrypt, decrypt } from '../../infra/encryption/crypto.js';
 import { verifyNIN as kycVerifyNIN, KYCVerifyNINInput } from '../../infra/kyc-client/client.js';
 import { UserRole, UserPayload } from '../../middleware/auth.js';
 
@@ -71,6 +70,20 @@ export async function login(email: string, passwordPlaintext: string, ipAddress:
   // Parse simple browser/OS info from userAgent (Layer 5 Session tracking)
   const browser = userAgent.includes('Chrome') ? 'Chrome' : userAgent.includes('Safari') ? 'Safari' : 'Firefox';
   const os = userAgent.includes('Windows') ? 'Windows' : userAgent.includes('Macintosh') ? 'MacOS' : 'Linux';
+
+  // Identity Layer 9: Risk Engine location anomaly detection
+  const activeSessions = await repository.getActiveUserSessions(user.id);
+  if (activeSessions.length > 0) {
+    const priorIp = activeSessions[0].ip_address;
+    if (priorIp !== ipAddress && ipAddress !== '127.0.0.1' && ipAddress !== '::1') {
+      console.warn(`⚠️ Risk Engine Alert: User [${user.id}] logged in from new IP: ${ipAddress} (Prior IP: ${priorIp})`);
+      await repository.logActivity(
+        user.id,
+        'auth:anomalous_location',
+        `Anomalous login location detected: IP ${ipAddress} differs from active session IP ${priorIp}`
+      );
+    }
+  }
 
   await repository.createSession(user.id, tokenHash, ipAddress, userAgent, browser, os);
   await repository.logActivity(user.id, 'auth:login', `Successful login from IP: ${ipAddress}`);
@@ -250,63 +263,7 @@ export async function getConsentsHistory(userId: string) {
   return repository.getUserConsents(userId);
 }
 
-// ==========================================
-// CONNECTED PORTAL ACCOUNTS (Layer 7)
-// ==========================================
 
-export async function connectPortalAccount(
-  userId: string,
-  portalId: string,
-  username: string,
-  passwordPlaintext: string
-) {
-  // Symmetrically encrypt password before database persistence (Standards Rule 7)
-  const passwordEncrypted = encrypt(passwordPlaintext);
-  
-  const account = await repository.upsertConnectedAccount(userId, portalId, username, passwordEncrypted);
-  await repository.logActivity(userId, 'account:linked', `Linked external portal account: ${portalId}`);
-  
-  return {
-    portalId: account.portal_id,
-    username: account.username,
-    updatedAt: account.updated_at,
-  };
-}
-
-export async function getConnectedPortals(userId: string) {
-  const accounts = await repository.getConnectedAccounts(userId);
-  return accounts.map(acc => ({
-    portalId: acc.portal_id,
-    username: acc.username,
-    updatedAt: acc.updated_at,
-  }));
-}
-
-/**
- * Internal method used by background workers to retrieve decrypted credentials
- * to submit applications (called only inside apps/api/src/modules/applications/).
- */
-export async function getDecryptedPortalCredentials(userId: string, portalId: string) {
-  const account = await repository.getConnectedAccount(userId, portalId);
-  if (!account) {
-    throw new Error(`Connected portal account not found for ${portalId}`);
-  }
-
-  const passwordDecrypted = decrypt(account.password_encrypted);
-  return {
-    username: account.username,
-    password: passwordDecrypted,
-    cookies: account.cookies,
-  };
-}
-
-export async function disconnectPortal(userId: string, portalId: string) {
-  const deleted = await repository.deleteConnectedAccount(userId, portalId);
-  if (deleted) {
-    await repository.logActivity(userId, 'account:unlinked', `Unlinked external portal account: ${portalId}`);
-  }
-  return deleted;
-}
 
 // ==========================================
 // SESSIONS (Layer 5)

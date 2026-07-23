@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import httpClient from '../../../shared/api/httpClient.js';
 import Card from '../../../shared/ui/Card.jsx';
 import Button from '../../../shared/ui/Button.jsx';
 import Badge from '../../../shared/ui/Badge.jsx';
-import { Shield, Key, Eye, EyeOff, Laptop, CheckSquare, Square, RefreshCw, AlertCircle } from 'lucide-react';
+import { Shield, Laptop, CheckSquare, Square, RefreshCw } from 'lucide-react';
 
 interface SessionItem {
   id: string;
@@ -14,13 +14,6 @@ interface SessionItem {
   os: string | null;
   is_active: boolean;
   last_active_at: string;
-  created_at: string;
-}
-
-interface ConnectedAccount {
-  id: string;
-  portal_id: string;
-  username: string;
   created_at: string;
 }
 
@@ -35,11 +28,6 @@ interface ConsentRecord {
 
 export const PreferencesScreen: React.FC = () => {
   const queryClient = useQueryClient();
-  const [showPassword, setShowPassword] = useState(false);
-  const [portalId, setPortalId] = useState('jobberman');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [connectError, setConnectError] = useState<string | null>(null);
 
   // 1. Query: Active Device Sessions
   const { data: sessions = [], isLoading: loadingSessions } = useQuery<SessionItem[]>({
@@ -50,16 +38,7 @@ export const PreferencesScreen: React.FC = () => {
     },
   });
 
-  // 2. Query: Connected Portals Accounts
-  const { data: connectedAccounts = [], isLoading: loadingAccounts } = useQuery<ConnectedAccount[]>({
-    queryKey: ['connected-accounts'],
-    queryFn: async () => {
-      const res = await httpClient('/api/v1/identity/connected-accounts');
-      return res.data.accounts;
-    },
-  });
-
-  // 3. Query: Signed Legal Consents
+  // 2. Query: Signed Legal Consents
   const { data: consents = [], isLoading: loadingConsents } = useQuery<ConsentRecord[]>({
     queryKey: ['consents'],
     queryFn: async () => {
@@ -71,7 +50,7 @@ export const PreferencesScreen: React.FC = () => {
   const hasSignedConsent = consents.some(c => c.agreed);
   const latestConsent = consents[0];
 
-  // 4. Mutation: Revoke Device Session
+  // 3. Mutation: Revoke Device Session
   const revokeSessionMutation = useMutation({
     mutationFn: async (sessionId: string) => {
       await httpClient(`/api/v1/identity/sessions/${sessionId}`, { method: 'DELETE' });
@@ -81,7 +60,7 @@ export const PreferencesScreen: React.FC = () => {
     },
   });
 
-  // 5. Mutation: Sign Consent Waiver
+  // 4. Mutation: Sign Consent Waiver
   const signConsentMutation = useMutation({
     mutationFn: async () => {
       // Retrieve client public IP or fallback
@@ -109,41 +88,6 @@ export const PreferencesScreen: React.FC = () => {
     },
   });
 
-  // 6. Mutation: Connect Portal Credentials
-  const connectAccountMutation = useMutation({
-    mutationFn: async () => {
-      setConnectError(null);
-      await httpClient('/api/v1/identity/connected-accounts', {
-        method: 'POST',
-        body: JSON.stringify({
-          portalId,
-          username,
-          password,
-        }),
-      });
-    },
-    onSuccess: () => {
-      setUsername('');
-      setPassword('');
-      queryClient.invalidateQueries({ queryKey: ['connected-accounts'] });
-    },
-    onError: (err: any) => {
-      setConnectError(err.error?.message || 'Failed to save connected portal account details.');
-    },
-  });
-
-  // 7. Mutation: Disconnect Portal
-  const disconnectPortalMutation = useMutation({
-    mutationFn: async (targetPortalId: string) => {
-      await httpClient(`/api/v1/identity/connected-accounts/${targetPortalId}`, {
-        method: 'DELETE',
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['connected-accounts'] });
-    },
-  });
-
   return (
     <div className="fade-in-up" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       {/* Title */}
@@ -152,7 +96,7 @@ export const PreferencesScreen: React.FC = () => {
           Security & Preferences
         </h2>
         <p style={{ color: 'hsl(var(--color-text-secondary))', fontSize: '0.8rem' }}>
-          Manage legal consents, linked job portals, and device sessions
+          Manage legal consents and device sessions
         </p>
       </div>
 
@@ -204,113 +148,6 @@ export const PreferencesScreen: React.FC = () => {
             <span>Click to sign legal consent waiver</span>
           </button>
         )}
-      </Card>
-
-      {/* Linked Accounts (PRD 6.2) */}
-      <Card variant="glass">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-          <Key size={16} style={{ color: 'hsl(var(--color-primary))' }} />
-          <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Connected Job Portals</h3>
-        </div>
-
-        {/* Existing Accounts List */}
-        {loadingAccounts ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', marginBottom: '1rem' }}>
-            <RefreshCw size={14} style={{ animation: 'spin 2s linear infinite' }} /> Loading portal list...
-          </div>
-        ) : connectedAccounts.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            {connectedAccounts.map(account => (
-              <div key={account.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: '0.5rem', fontSize: '0.85rem' }}>
-                <div>
-                  <Badge variant="info">{account.portal_id.toUpperCase()}</Badge>
-                  <span style={{ marginLeft: '0.5rem', color: 'hsl(var(--color-text-secondary))' }}>{account.username}</span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => disconnectPortalMutation.mutate(account.portal_id)}
-                  style={{ color: 'rgb(248, 113, 113)', padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
-                >
-                  Disconnect
-                </Button>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {/* Connect Form */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div className="input-group">
-            <label className="input-label">Select Job Portal</label>
-            <select
-              value={portalId}
-              onChange={(e) => setPortalId(e.target.value)}
-              className="input-field"
-              style={{ background: 'rgba(15, 23, 42, 0.6)' }}
-            >
-              <option value="jobberman" style={{ background: '#0f172a' }}>Jobberman Nigeria</option>
-              <option value="greenhouse" style={{ background: '#0f172a' }}>Greenhouse Board</option>
-            </select>
-          </div>
-          
-          <div className="input-group">
-            <label className="input-label">Username / Portal Email</label>
-            <input
-              type="text"
-              required
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="e.g. name@email.com"
-              className="input-field"
-            />
-          </div>
-
-          <div className="input-group" style={{ position: 'relative' }}>
-            <label className="input-label">Portal Password</label>
-            <input
-              type={showPassword ? 'text' : 'password'}
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter account password"
-              className="input-field"
-              style={{ paddingRight: '2.5rem' }}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              style={{
-                position: 'absolute',
-                right: '10px',
-                top: '32px',
-                background: 'none',
-                border: 'none',
-                color: 'hsl(var(--color-text-muted))',
-                cursor: 'pointer',
-              }}
-            >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-
-          {connectError && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'rgb(248, 113, 113)', fontSize: '0.75rem' }}>
-              <AlertCircle size={14} />
-              <span>{connectError}</span>
-            </div>
-          )}
-
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => connectAccountMutation.mutate()}
-            isLoading={connectAccountMutation.isPending}
-            style={{ alignSelf: 'flex-start' }}
-          >
-            Save Encrypted Credentials
-          </Button>
-        </div>
       </Card>
 
       {/* Device Sessions list (PRD 6.2) */}

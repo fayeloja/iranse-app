@@ -51,22 +51,7 @@ export async function up(pgm) {
     created_at: { type: 'timestamp', notNull: true, default: pgm.func('current_timestamp') },
   });
 
-  // 5. Create Connected Accounts Table (Encrypted external portal credentials - Identity Layer 7)
-  pgm.createTable('connected_accounts', {
-    id: { type: 'uuid', primaryKey: true, default: pgm.func('gen_random_uuid()') },
-    user_id: { type: 'uuid', notNull: true, references: 'users', onDelete: 'CASCADE' },
-    portal_id: { type: 'varchar(100)', notNull: true },
-    username: { type: 'varchar(255)', notNull: true },
-    password_encrypted: { type: 'text', notNull: true },
-    cookies: { type: 'text' },
-    created_at: { type: 'timestamp', notNull: true, default: pgm.func('current_timestamp') },
-    updated_at: { type: 'timestamp', notNull: true, default: pgm.func('current_timestamp') },
-  });
-  pgm.addConstraint('connected_accounts', 'unique_user_portal', {
-    unique: ['user_id', 'portal_id'],
-  });
-
-  // 6. Create Agent Activity Logs Table (Audit trail - Identity Layer 8)
+  // 5. Create Agent Activity Logs Table (Audit trail - Identity Layer 8)
   pgm.createTable('agent_activity_logs', {
     id: { type: 'uuid', primaryKey: true, default: pgm.func('gen_random_uuid()') },
     user_id: { type: 'uuid', notNull: true, references: 'users', onDelete: 'CASCADE' },
@@ -78,7 +63,6 @@ export async function up(pgm) {
 
 export async function down(pgm) {
   pgm.dropTable('agent_activity_logs');
-  pgm.dropTable('connected_accounts');
   pgm.dropTable('user_consents');
   pgm.dropTable('user_sessions');
   pgm.dropTable('users');

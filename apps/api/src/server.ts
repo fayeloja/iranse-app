@@ -7,13 +7,32 @@ import { env } from './config/env.js';
 import { pool } from './infra/database/client.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
+import { initSentry } from './infra/observability/sentry.js';
+import { getMetrics, metricsContentType, httpRequestCounter, httpRequestDuration } from './infra/observability/metrics.js';
+import { setupBullBoard } from './infra/observability/bullBoard.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Initialize Sentry error tracking
+initSentry();
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// Prometheus HTTP Request Metrics Middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = (Date.now() - start) / 1000;
+    const route = req.baseUrl || req.path;
+    httpRequestCounter.inc({ method: req.method, route, status_code: res.statusCode });
+    httpRequestDuration.observe({ method: req.method, route, status_code: res.statusCode }, duration);
+  });
+  next();
+});
 
 // 1. Health Check Endpoint (Deployment liveness/readiness probe check)
 app.get('/health', async (req, res) => {
@@ -25,6 +44,20 @@ app.get('/health', async (req, res) => {
     res.status(500).json({ status: 'error', reason: error.message || 'Database connection failed' });
   }
 });
+
+// 2. Prometheus Metrics Endpoint
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', metricsContentType);
+    res.end(await getMetrics());
+  } catch (error: any) {
+    res.status(500).end(error.message);
+  }
+});
+
+// 3. Bull Board Queue Monitoring Dashboard UI (/admin/queues)
+app.use('/admin/queues', setupBullBoard());
+console.log('📊 Bull Board queue UI mounted at /admin/queues');
 
 // 2. Dynamic Route Auto-loader
 // Scans modules/ directories and mounts `{module}.route.ts` or `{module}.route.js`

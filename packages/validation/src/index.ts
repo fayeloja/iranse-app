@@ -65,12 +65,7 @@ export const userConsentSchema = z.object({
   }),
 });
 
-export const connectedAccountSchema = z.object({
-  portalId: z.string().min(1, 'Portal ID is required'),
-  username: z.string().min(1, 'Username or email is required'),
-  password: z.string().min(1, 'Password is required'),
-  cookies: z.string().optional(),
-});
+
 
 // ==========================================
 // 2. CAREER PROFILE SCHEMAS
@@ -161,7 +156,7 @@ export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type VerifyNINInput = z.infer<typeof verifyNINSchema>;
 export type UserSession = z.infer<typeof userSessionSchema>;
 export type UserConsent = z.infer<typeof userConsentSchema>;
-export type ConnectedAccount = z.infer<typeof connectedAccountSchema>;
+
 
 export type ExperienceInput = z.infer<typeof experienceSchema>;
 export type AchievementInput = z.infer<typeof achievementSchema>;

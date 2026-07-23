@@ -115,45 +115,7 @@ export async function getConsents(req: Request, res: Response, next: NextFunctio
   }
 }
 
-export async function connectAccount(req: Request, res: Response, next: NextFunction) {
-  try {
-    const userId = req.user!.id;
-    const { portalId, username, password } = req.body;
 
-    const account = await service.connectPortalAccount(userId, portalId, username, password);
-    res.status(200).json({ status: 'success', data: { account } });
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function getConnectedPortals(req: Request, res: Response, next: NextFunction) {
-  try {
-    const userId = req.user!.id;
-    const portals = await service.getConnectedPortals(userId);
-    res.status(200).json({ status: 'success', data: { portals } });
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function disconnectPortal(req: Request, res: Response, next: NextFunction) {
-  try {
-    const userId = req.user!.id;
-    const { portalId } = req.params;
-
-    const unlinked = await service.disconnectPortal(userId, portalId);
-    if (!unlinked) {
-      return res.status(404).json({
-        error: { message: `Linked account for ${portalId} not found`, status: 404 }
-      });
-    }
-
-    res.status(200).json({ status: 'success', message: `Unlinked ${portalId} successfully` });
-  } catch (error) {
-    next(error);
-  }
-}
 
 export async function getSessions(req: Request, res: Response, next: NextFunction) {
   try {

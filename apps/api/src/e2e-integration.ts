@@ -1,7 +1,6 @@
 import './preload-env.js';
 
 import { query } from './infra/database/client.js';
-import { encrypt } from './infra/encryption/crypto.js';
 import argon2 from 'argon2';
 import { saveJob } from './modules/job-discovery/job-discovery.repository.js';
 import { calculateUserJobMatch } from './modules/matching/matching.service.js';
@@ -79,17 +78,8 @@ async function runE2E() {
     console.log('Tailored Cover Letter Pitch preview:');
     console.log(stage.materials.coverLetter.substring(0, 150) + '...\n');
 
-    // 5. Connect job portal connected accounts to verify decryption
-    const encryptedSecret = encrypt('my-super-secret-password'); // valid encrypted payload format
-    await query(
-      `INSERT INTO connected_accounts (user_id, portal_id, username, password_encrypted)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (user_id, portal_id) DO UPDATE SET username = EXCLUDED.username;`,
-      [testUserId, 'greenhouse', 'e2e-user', encryptedSecret]
-    );
-
-    // 6. User Approves & Queues Application
-    console.log('🗳️ 6. Simulating candidate approval action...');
+    // 5. User Approves & Queues Application
+    console.log('🗳️ 5. Simulating candidate approval action...');
     const approval = await approveAndQueueApplication(testUserId, testJobId);
     console.log(`Application successfully queued in status: ${approval.status}`);
 

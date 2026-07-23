@@ -77,11 +77,11 @@ Architecture Decision Records, numbered. Append new decisions; do not edit or de
 4. *Authorization*: Role-Based Access Control (RBAC) middleware checking granular permissions (e.g. `applications:submit`).
 5. *Sessions*: A database table (`user_sessions`) storing token hashes and device metadata to allow viewing/revoking active sessions.
 6. *Consent*: Logging legal auto-apply waivers (IP, timestamp, waiver version, location).
-7. *Connected Accounts*: Encrypted storage (AES-256-GCM) of user job portal credentials/cookies in a `connected_accounts` table.
+7. *Connected Accounts*: (SUPERSEDED by #19 — user credential storage removed to adhere to backend JobSourceAdapter design and eliminate third-party credential liability).
 8. *Audit Trail*: Storing an immutable log of agent actions (e.g. "Resume variant generated").
 9. *Risk Engine*: Spotting anomalous GeoIP travel to trigger step-up verification.
 10. *Career Profile Versioning*: Saving snapshot JSON profiles with each application to preserve history.
-**Consequence:** The `identity` module is structured into sub-folders matching these layers. Requires migration tables for consents, sessions, credentials, snapshots, and audit logs. Adds cryptographic encryption utility in `infra/encryption`.
+**Consequence:** The `identity` module is structured into sub-folders matching these layers. Requires migration tables for consents, sessions, snapshots, and audit logs.
 
 ### 15. Free-tier application cap applies to all user-approved applications, not only auto-submitted
 **Context:** Open question #9 asked whether the proposed 5-applications/month free-tier limit applies to every approved application or only auto-submitted ones. Auto-submit doesn't exist yet (Phase 3), so a cap scoped only to auto-submit would be effectively no cap at MVP.
@@ -107,3 +107,8 @@ Architecture Decision Records, numbered. Append new decisions; do not edit or de
 3. *Non-trivial hidden scope.* Implies a public paginated/filterable endpoint over the raw job store (`GET /api/v1/job-discovery/`), which currently only has admin/debug routes. That means query performance work, filter validation, and pagination design that doesn't exist anywhere in the current architecture.
 4. *Original UI concepts confirm the intent.* All 6 concept mockups use a bottom nav of Home · Matches · Applications · Profile — no "Jobs" tab. The match review deck was always the designed discovery surface.
 **Consequence:** No `/jobs` route, no `JobBrowseScreen`, no public job-discovery endpoint. Revisit in Phase 2/3 once there's real signal on whether users want to browse beyond their matches, rather than guessing now. If added later, it should be framed as a power-user/exploration feature, not the primary discovery path.
+
+### 19. Strictly prohibit storing per-user third-party job portal login credentials
+**Context:** An unauthorized feature introduced a "Connected Job Portals" UI and `connected_accounts` table to collect and store encrypted user usernames/passwords for portals like Jobberman. This created a massive security vulnerability (storing real third-party user credentials), posed account ban/ToS risks for users, and directly contradicted `ARCHITECTURE.md`'s backend `JobSourceAdapter` pattern.
+**Decision:** Iransé must never collect, store, or impersonate per-user third-party job portal logins. Application submission and job discovery must flow strictly through the backend adapter, queue, and API submission pipeline managed by Iransé.
+**Consequence:** Supersedes item 7 of Decision #14. The `connected_accounts` database table, API routes (`/connected-accounts`), repository methods, frontend UI card, and credential decryption handlers are completely removed.

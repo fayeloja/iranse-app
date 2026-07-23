@@ -6,6 +6,12 @@ import { runIngestion } from './modules/job-discovery/job-discovery.service.js';
 import { matchJobAgainstAllUsers } from './modules/matching/matching.service.js';
 import { processApplicationSubmission } from './modules/applications/applications.service.js';
 
+import { initSentry, captureException } from './infra/observability/sentry.js';
+import { applicationSubmissionCounter } from './infra/observability/metrics.js';
+
+// Initialize Sentry error tracking for worker processes
+initSentry();
+
 const activeWorkers: Worker[] = [];
 
 // Determine which queues to listen to based on env variables (Decision #12)
@@ -39,8 +45,15 @@ if (targetQueues.includes(QUEUES.APPLICATIONS)) {
     QUEUES.APPLICATIONS,
     async (job: Job) => {
       console.log(`📤 Applications Worker: Submitting job [${job.id}] (name: ${job.name})`);
-      const result = await processApplicationSubmission(job.data.applicationId);
-      return { submitted: true, status: result.status };
+      try {
+        const result = await processApplicationSubmission(job.data.applicationId);
+        applicationSubmissionCounter.inc({ status: result.status || 'unknown', portal: 'greenhouse' });
+        return { submitted: true, status: result.status };
+      } catch (err: any) {
+        captureException(err, { jobId: job.id, applicationId: job.data?.applicationId });
+        applicationSubmissionCounter.inc({ status: 'Failed', portal: 'greenhouse' });
+        throw err;
+      }
     },
     {
       connection: redisConnection,

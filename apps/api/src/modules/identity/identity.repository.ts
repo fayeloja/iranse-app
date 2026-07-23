@@ -36,16 +36,7 @@ export interface ConsentRow {
   created_at: Date;
 }
 
-export interface ConnectedAccountRow {
-  id: string;
-  user_id: string;
-  portal_id: string;
-  username: string;
-  password_encrypted: string;
-  cookies?: string;
-  created_at: Date;
-  updated_at: Date;
-}
+
 
 export interface ActivityLogRow {
   id: string;
@@ -265,64 +256,7 @@ export async function getUserConsents(userId: string): Promise<ConsentRow[]> {
   return result.rows;
 }
 
-// ==========================================
-// CONNECTED ACCOUNTS CREDENTIALS (Layer 7)
-// ==========================================
 
-export async function upsertConnectedAccount(
-  userId: string,
-  portalId: string,
-  username: string,
-  passwordEncrypted: string,
-  cookies?: string
-): Promise<ConnectedAccountRow> {
-  const sql = `
-    INSERT INTO connected_accounts (user_id, portal_id, username, password_encrypted, cookies, updated_at)
-    VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-    ON CONFLICT (user_id, portal_id) DO UPDATE
-    SET username = EXCLUDED.username,
-        password_encrypted = EXCLUDED.password_encrypted,
-        cookies = COALESCE(EXCLUDED.cookies, connected_accounts.cookies),
-        updated_at = CURRENT_TIMESTAMP
-    RETURNING *;
-  `;
-  const result = await query<ConnectedAccountRow>(sql, [
-    userId,
-    portalId,
-    username,
-    passwordEncrypted,
-    cookies,
-  ]);
-  return result.rows[0];
-}
-
-export async function getConnectedAccounts(userId: string): Promise<ConnectedAccountRow[]> {
-  const sql = `
-    SELECT id, user_id, portal_id, username, created_at, updated_at
-    FROM connected_accounts
-    WHERE user_id = $1;
-  `;
-  const result = await query<ConnectedAccountRow>(sql, [userId]);
-  return result.rows;
-}
-
-export async function getConnectedAccount(
-  userId: string,
-  portalId: string
-): Promise<ConnectedAccountRow | null> {
-  const sql = `SELECT * FROM connected_accounts WHERE user_id = $1 AND portal_id = $2;`;
-  const result = await query<ConnectedAccountRow>(sql, [userId, portalId]);
-  return result.rows[0] || null;
-}
-
-export async function deleteConnectedAccount(userId: string, portalId: string): Promise<boolean> {
-  const sql = `
-    DELETE FROM connected_accounts
-    WHERE user_id = $1 AND portal_id = $2;
-  `;
-  const result = await query(sql, [userId, portalId]);
-  return result.rowCount ? result.rowCount > 0 : false;
-}
 
 // ==========================================
 // ACTIVITY AUDIT TRAIL (Layer 8)

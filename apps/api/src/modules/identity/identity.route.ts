@@ -11,7 +11,6 @@ import {
   resetPasswordSchema,
   verifyNINSchema,
   userConsentSchema,
-  connectedAccountSchema,
 } from 'validation';
 
 const router = Router();
@@ -57,30 +56,7 @@ router.get(
 );
 
 // ==========================================
-// 4. CONNECTED ACCOUNTS (Layer 7)
-// ==========================================
-router.post(
-  '/connected-accounts',
-  authenticate,
-  requirePermissions(['profile:write']),
-  validateRequest({ body: connectedAccountSchema }),
-  controller.connectAccount
-);
-router.get(
-  '/connected-accounts',
-  authenticate,
-  requirePermissions(['profile:read']),
-  controller.getConnectedPortals
-);
-router.delete(
-  '/connected-accounts/:portalId',
-  authenticate,
-  requirePermissions(['profile:write']),
-  controller.disconnectPortal
-);
-
-// ==========================================
-// 5. DEVICE SESSIONS (Layer 5)
+// 4. DEVICE SESSIONS (Layer 5)
 // ==========================================
 router.get(
   '/sessions',
@@ -96,7 +72,7 @@ router.delete(
 );
 
 // ==========================================
-// 6. ACTIVITY AUDIT TRAIL (Layer 8)
+// 5. ACTIVITY AUDIT TRAIL (Layer 8)
 // ==========================================
 router.get(
   '/audit-trail',

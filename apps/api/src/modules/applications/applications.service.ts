@@ -1,14 +1,16 @@
 import * as repository from './applications.repository.js';
 import { generateTailoredMaterials } from '../application-materials/materials.service.js';
-import { getDecryptedPortalCredentials } from '../identity/identity.service.js';
 import { getJobById } from '../job-discovery/job-discovery.repository.js';
 import { checkLimit } from '../../infra/rate-limiter/compositeKeyLimiter.js';
 import { applicationsQueue } from '../../infra/queue/queues.js';
 import { env } from '../../config/env.js';
 
+import { getExperiences, getAchievements, getVoiceSnippets } from '../career-profile/career-profile.repository.js';
+
 /**
  * Initiates the application drafting flow: generates tailored resume variant
  * and Cover Letter, storing in database as PendingApproval (PRD 6.4).
+ * Takes an immutable snapshot of the user's career profile (Identity Layer 10).
  */
 export async function initiateApplication(userId: string, jobId: string) {
   const materials = await generateTailoredMaterials(userId, jobId);
@@ -20,6 +22,22 @@ export async function initiateApplication(userId: string, jobId: string) {
     materials.coverLetter,
     'PendingApproval'
   );
+
+  // Take immutable profile snapshot (Identity Layer 10)
+  try {
+    const experiences = await getExperiences(userId);
+    const achievements = await getAchievements(userId);
+    const voiceSnippets = await getVoiceSnippets(userId);
+    await repository.createProfileSnapshot(app.id, userId, {
+      experiences,
+      achievements,
+      voiceSnippets,
+      materials,
+      snapshotAt: new Date().toISOString(),
+    });
+  } catch (snapshotErr) {
+    console.warn(`⚠️ Failed to create profile snapshot for Application [${app.id}]:`, snapshotErr);
+  }
 
   return {
     applicationId: app.id,
@@ -105,14 +123,10 @@ export async function processApplicationSubmission(applicationId: string) {
       throw new Error(`Rate limit exceeded for portal submission on: ${sourceId}`);
     }
 
-    // 3. Retrieve decrypted external connected portal credentials (Identity Layer 7)
-    const credentials = await getDecryptedPortalCredentials(app.user_id, sourceId);
-    console.log(`📡 Worker: Authenticating user against portal [${sourceId}] with username: ${credentials.username}`);
-
-    // 4. Execute submission (For MVP, run mock simulation delays)
+    // 3. Execute submission (For MVP, run mock simulation delays)
     await new Promise((resolve) => setTimeout(resolve, 3000));
     
-    // 5. Success - update status
+    // 4. Success - update status
     await repository.updateApplicationStatus(applicationId, 'Submitted');
     console.log(`✅ Application [${applicationId}] successfully submitted to ${sourceId}!`);
 
